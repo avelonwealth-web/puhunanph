@@ -234,19 +234,65 @@ app.post("/api/create-paymongo-source", async (req, res) => {
     if (!Number.isFinite(phpAmount) || phpAmount <= 0) {
       return res.status(400).json({ error: "Invalid deposit amount." });
     }
-    const paymongoSourceType = (getEnvFirst("PAYMONGO_SOURCE_TYPE", "PAYMONGO_SOURCE_TYPE_B") || "gcash").toLowerCase();
-    const allowedTypes = ["gcash", "grab_pay", "paymaya"];
-    // PayMongo /v1/sources does not accept qrph as source type.
-    const finalType = paymongoSourceType === "qrph"
-      ? "gcash"
-      : (allowedTypes.includes(paymongoSourceType) ? paymongoSourceType : "gcash");
+    const paymongoSourceType = (getEnvFirst("PAYMONGO_SOURCE_TYPE", "PAYMONGO_SOURCE_TYPE_B") || "qrph").toLowerCase();
     const successRedirect = `${frontendBase}/deposit-history.html`;
     const failedRedirect = `${frontendBase}/deposit.html`;
+    const amountCentavos = Math.round(phpAmount * 100);
 
+    if (paymongoSourceType === "qrph") {
+      const referenceNumber = `dep_${uid}_${Date.now()}`;
+      const checkoutPayload = {
+        data: {
+          attributes: {
+            line_items: [
+              {
+                currency: "PHP",
+                amount: amountCentavos,
+                name: "PuhunanPH Deposit",
+                quantity: 1
+              }
+            ],
+            payment_method_types: ["qrph"],
+            success_url: successRedirect,
+            cancel_url: failedRedirect,
+            reference_number: referenceNumber,
+            metadata: { uid, depositAmount: phpAmount }
+          }
+        }
+      };
+      const response = await axios.post("https://api.paymongo.com/v1/checkout_sessions", checkoutPayload, {
+        headers: {
+          Authorization: `Basic ${Buffer.from(`${paymongoSecretKey}:`).toString("base64")}`,
+          "Content-Type": "application/json"
+        }
+      });
+      const checkout = response.data?.data;
+      const checkoutId = checkout?.id;
+      const checkoutUrl = checkout?.attributes?.checkout_url;
+      if (!checkoutId || !checkoutUrl) {
+        return res.status(502).json({ error: "PayMongo checkout response is incomplete." });
+      }
+      await db.collection("deposits").doc(checkoutId).set({
+        userId: uid,
+        amount: phpAmount,
+        status: "pending",
+        sourceType: "qrph",
+        sourceId: checkoutId,
+        checkoutSessionId: checkoutId,
+        referenceNumber,
+        checkoutUrl,
+        ...nowParts(),
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+      return res.json({ sourceId: checkoutId, checkoutUrl });
+    }
+
+    const allowedTypes = ["gcash", "grab_pay", "paymaya"];
+    const finalType = allowedTypes.includes(paymongoSourceType) ? paymongoSourceType : "gcash";
     const payload = {
       data: {
         attributes: {
-          amount: Math.round(phpAmount * 100),
+          amount: amountCentavos,
           redirect: {
             success: successRedirect,
             failed: failedRedirect
@@ -365,19 +411,47 @@ app.post("/api/paymongo-webhook", async (req, res) => {
     if (!sig) return res.status(401).json({ error: "Missing signature" });
 
     const evt = req.body.data?.attributes?.type;
-    const src = req.body.data?.attributes?.data?.attributes?.source;
-    const sourceId = src?.id || req.body.data?.attributes?.data?.id || null;
-    const amount = Number(src?.amount || req.body.data?.attributes?.data?.attributes?.amount || 0) / 100;
-    if (!sourceId) return res.json({ ok: true, ignored: true });
-    if (evt !== "source.chargeable" && evt !== "source.paid" && evt !== "payment.paid") {
+    const eventData = req.body.data?.attributes?.data || {};
+    const eventAttrs = eventData?.attributes || {};
+    const src = eventAttrs?.source || {};
+    const candidateId = src?.id
+      || eventData?.id
+      || eventAttrs?.checkout_session_id
+      || null;
+    const amountFromEvent = Number(src?.amount || eventAttrs?.amount || 0) / 100;
+    const referenceNumber = String(eventAttrs?.reference_number || "").trim();
+    if (evt !== "source.chargeable" && evt !== "source.paid" && evt !== "payment.paid" && evt !== "checkout_session.payment.paid") {
       return res.json({ ok: true, ignored: true });
     }
 
-    const depRef = db.collection("deposits").doc(sourceId);
-    const depDoc = await depRef.get();
-    if (!depDoc.exists) return res.status(404).json({ error: "Deposit source not found" });
+    let depRef = candidateId ? db.collection("deposits").doc(candidateId) : null;
+    let depDoc = depRef ? await depRef.get() : null;
+    if (!depDoc?.exists && eventAttrs?.checkout_session_id) {
+      const q = await db.collection("deposits")
+        .where("checkoutSessionId", "==", String(eventAttrs.checkout_session_id))
+        .limit(1)
+        .get();
+      if (!q.empty) {
+        depDoc = q.docs[0];
+        depRef = depDoc.ref;
+      }
+    }
+    if (!depDoc?.exists && referenceNumber) {
+      const q = await db.collection("deposits")
+        .where("referenceNumber", "==", referenceNumber)
+        .limit(1)
+        .get();
+      if (!q.empty) {
+        depDoc = q.docs[0];
+        depRef = depDoc.ref;
+      }
+    }
+    if (!depDoc?.exists) return res.status(404).json({ error: "Deposit source not found" });
     const deposit = depDoc.data();
     if (deposit.status === "paid") return res.json({ ok: true, duplicate: true });
+    const amount = Number.isFinite(amountFromEvent) && amountFromEvent > 0
+      ? amountFromEvent
+      : Number(deposit.amount || 0);
 
     await db.runTransaction(async (tx) => {
       const userRef = db.collection("users").doc(deposit.userId);
