@@ -236,11 +236,7 @@ function setupDashboard() {
 function setupProductPage() {
   const wrap = document.getElementById("productView");
   if (!wrap) return;
-  const product = getProductById(getQuery("product"));
-  if (!product) {
-    wrap.innerHTML = "<p>Product not found.</p>";
-    return;
-  }
+  const product = getProductById(getQuery("product")) || PRODUCTS[0];
   wrap.innerHTML = `
     <div class="card">
       <h2>${product.icon} ${product.name}</h2>
@@ -250,18 +246,57 @@ function setupProductPage() {
       <p id="productActiveStatus" class="muted">Status: checking...</p>
       <button id="confirmInvest" class="btn btn-primary">Confirm Invest</button>
     </div>
+    <div class="card">
+      <h3>Your Investments</h3>
+      <div id="myInvestmentsList" class="grid"></div>
+    </div>
   `;
   requireAuth((user) => {
     const activeNode = document.getElementById("productActiveStatus");
     const investBtn = document.getElementById("confirmInvest");
+    const listNode = document.getElementById("myInvestmentsList");
+    const now = () => Date.now();
+    const isExpiredRow = (row) => {
+      if (String(row?.status || "").toLowerCase() === "completed" || String(row?.status || "").toLowerCase() === "expired") return true;
+      const endTs = new Date(row?.endDate || "").getTime();
+      if (!Number.isFinite(endTs)) return false;
+      return endTs <= now();
+    };
+
+    streamCollection("investments", [
+      where("userId", "==", user.uid),
+      orderBy("createdAt", "desc")
+    ], (rows) => {
+      if (listNode) {
+        listNode.innerHTML = rows.map((r) => {
+          const expired = isExpiredRow(r);
+          const icon = PRODUCTS.find((p) => p.name === r.product)?.icon || "🌾";
+          const statusText = expired ? "Expired" : "Active";
+          const when = r.createdAt?.seconds
+            ? new Date(r.createdAt.seconds * 1000).toLocaleString("en-PH")
+            : `${r.date || "-"} ${r.time || ""}`.trim();
+          return `
+            <article class="card">
+              <p><strong>${icon} ${r.product || "-"}</strong></p>
+              <p class="muted">Amount: ${peso(r.amount || 0)}</p>
+              <p class="muted">Duration: ${Number(r.duration || 0)} days</p>
+              <p class="muted">Date: ${when || "-"}</p>
+              <p class="muted">Status: ${statusText}</p>
+            </article>
+          `;
+        }).join("") || "<p class=\"muted\">No investments yet.</p>";
+      }
+    });
+
     streamCollection("investments", [
       where("userId", "==", user.uid),
       where("product", "==", product.name),
-      where("status", "==", "active")
+      where("status", "==", "active"),
+      orderBy("createdAt", "desc")
     ], (rows) => {
-      const isActive = rows.length > 0;
+      const isActive = rows.some((r) => !isExpiredRow(r));
       if (activeNode) {
-        activeNode.textContent = isActive ? "Status: Active and running" : "Status: Not active yet";
+        activeNode.textContent = isActive ? "Status: Active and running" : "Status: Expired or not active";
       }
       if (investBtn) {
         investBtn.disabled = isActive;

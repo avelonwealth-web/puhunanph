@@ -273,6 +273,25 @@ export async function addLog(userId, type, message, meta = {}) {
 }
 
 export async function investProduct({ uid, product }) {
+  const existing = await getDocs(query(
+    collection(db, "investments"),
+    where("userId", "==", uid),
+    where("product", "==", product.name),
+    where("status", "==", "active"),
+    orderBy("createdAt", "desc"),
+    limit(20)
+  ));
+  const now = Date.now();
+  const hasRunning = existing.docs.some((d) => {
+    const row = d.data() || {};
+    if (!row?.endDate) return true;
+    const endTs = new Date(row.endDate).getTime();
+    return Number.isFinite(endTs) ? endTs > now : true;
+  });
+  if (hasRunning) {
+    throw new Error("This product is still active. Reinvest after expiry.");
+  }
+
   const userRef = doc(db, "users", uid);
   await runTransaction(db, async (tx) => {
     const us = await tx.get(userRef);

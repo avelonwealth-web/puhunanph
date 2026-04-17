@@ -13,6 +13,14 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+function getEnvFirst(...keys) {
+  for (const key of keys) {
+    const val = process.env[key];
+    if (val !== undefined && val !== null && String(val).trim() !== "") return String(val);
+  }
+  return "";
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const publicCandidates = [
@@ -58,23 +66,66 @@ if (!publicDir) {
 
 let db = null;
 try {
-  const privateKey = (process.env.FIREBASE_PRIVATE_KEY || "").replace(/\\n/g, "\n");
-  if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && privateKey) {
-    admin.initializeApp({
-      credential: admin.credential.cert({
-        projectId: process.env.FIREBASE_PROJECT_ID,
-        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-        privateKey
-      })
-    });
-    db = admin.firestore();
+  const normalizePrivateKey = (raw = "") => {
+    const trimmed = String(raw || "").trim();
+    if (!trimmed) return "";
+    const unquoted = trimmed.startsWith("\"") && trimmed.endsWith("\"")
+      ? trimmed.slice(1, -1)
+      : trimmed;
+    return unquoted.replace(/\\n/g, "\n");
+  };
+
+  const fromJson = getEnvFirst("FIREBASE_SERVICE_ACCOUNT_JSON").trim();
+  if (fromJson) {
+    const parsed = JSON.parse(fromJson);
+    const privateKey = normalizePrivateKey(parsed.private_key || parsed.privateKey || "");
+    if (parsed.project_id && parsed.client_email && privateKey) {
+      admin.initializeApp({
+        credential: admin.credential.cert({
+          projectId: parsed.project_id,
+          clientEmail: parsed.client_email,
+          privateKey
+        })
+      });
+      db = admin.firestore();
+    } else {
+      console.warn("FIREBASE_SERVICE_ACCOUNT_JSON is present but missing required fields.");
+    }
   } else {
-    console.warn("Firebase Admin not configured. API data endpoints will return 503 until env vars are set.");
+    const projectId = getEnvFirst("FIREBASE_PROJECT_ID", "FIREBASE_PROJECT_ID_B").trim();
+    const clientEmail = getEnvFirst("FIREBASE_CLIENT_EMAIL", "FIREBASE_CLIENT_EMAIL_B").trim();
+    let privateKey = normalizePrivateKey(getEnvFirst("FIREBASE_PRIVATE_KEY", "FIREBASE_PRIVATE_KEY_B"));
+    const privateKeyBase64 = getEnvFirst("FIREBASE_PRIVATE_KEY_BASE64", "FIREBASE_PRIVATE_KEY_BASE64_B");
+    if (!privateKey && privateKeyBase64) {
+      try {
+        privateKey = normalizePrivateKey(
+          Buffer.from(privateKeyBase64, "base64").toString("utf8")
+        );
+      } catch (_) {
+        // Ignore invalid base64 and keep fallback warning below.
+      }
+    }
+    if (projectId && clientEmail && privateKey) {
+      admin.initializeApp({
+        credential: admin.credential.cert({
+          projectId,
+          clientEmail,
+          privateKey
+        })
+      });
+      db = admin.firestore();
+    } else {
+      const missing = [];
+      if (!projectId) missing.push("FIREBASE_PROJECT_ID");
+      if (!clientEmail) missing.push("FIREBASE_CLIENT_EMAIL");
+      if (!privateKey) missing.push("FIREBASE_PRIVATE_KEY (or FIREBASE_PRIVATE_KEY_BASE64)");
+      console.warn(`Firebase Admin not configured. Missing: ${missing.join(", ")}`);
+    }
   }
 } catch (error) {
   console.error("Firebase Admin initialization failed:", error.message);
 }
-const ADMIN_SECRET = process.env.ADMIN_ACTION_SECRET || "";
+const ADMIN_SECRET = getEnvFirst("ADMIN_ACTION_SECRET") || "";
 const REF_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
 function makeReferralCode(length = 8) {
@@ -175,14 +226,15 @@ app.post("/api/create-paymongo-source", async (req, res) => {
   try {
     const { uid, amount } = req.body;
     if (!uid || !amount) return res.status(400).json({ error: "uid and amount required" });
-    if (!process.env.PAYMONGO_SECRET_KEY) {
+    const paymongoSecretKey = getEnvFirst("PAYMONGO_SECRET_KEY", "PAYMONGO_SECRET_KEY_B");
+    if (!paymongoSecretKey) {
       return res.status(503).json({ error: "PayMongo is not configured on backend yet." });
     }
     const phpAmount = Number(amount);
     if (!Number.isFinite(phpAmount) || phpAmount <= 0) {
       return res.status(400).json({ error: "Invalid deposit amount." });
     }
-    const paymongoSourceType = (process.env.PAYMONGO_SOURCE_TYPE || "gcash").toLowerCase();
+    const paymongoSourceType = (getEnvFirst("PAYMONGO_SOURCE_TYPE", "PAYMONGO_SOURCE_TYPE_B") || "gcash").toLowerCase();
     const allowedTypes = ["gcash", "grab_pay", "paymaya"];
     // PayMongo /v1/sources does not accept qrph as source type.
     const finalType = paymongoSourceType === "qrph"
@@ -206,7 +258,7 @@ app.post("/api/create-paymongo-source", async (req, res) => {
     };
     const response = await axios.post("https://api.paymongo.com/v1/sources", payload, {
       headers: {
-        Authorization: `Basic ${Buffer.from(`${process.env.PAYMONGO_SECRET_KEY}:`).toString("base64")}`,
+        Authorization: `Basic ${Buffer.from(`${paymongoSecretKey}:`).toString("base64")}`,
         "Content-Type": "application/json"
       }
     });
