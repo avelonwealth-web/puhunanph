@@ -22,10 +22,10 @@ Full-stack investment referral platform with Firebase realtime sync, PayMongo de
 ## Setup
 
 ### 1) Frontend
-Open files with any static server (or deploy to Netlify).
+Open files with any static server (or deploy to Netlify from this repository root).
 
 Set Firebase values in:
-- `assets/js/firebase-config.js`
+- `public/assets/js/firebase-config.js`
 
 ### 2) Backend
 ```bash
@@ -50,6 +50,15 @@ Create a scheduled call at `1:00 AM` to:
 - `POST /api/run-daily-rewards`
 with header:
 - `x-cron-secret: <your custom secret>`
+
+### 4) Netlify Hosting
+- Build command: *(leave empty)*
+- Publish directory: `public`
+- Redirect/API proxy config is included in:
+  - `netlify.toml`
+  - `public/_redirects`
+- Cache/security headers are included in:
+  - `public/_headers`
 
 ## Security Notes
 - Never commit service account JSON or private keys.

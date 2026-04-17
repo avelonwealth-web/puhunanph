@@ -404,8 +404,6 @@ function setupWithdrawPage() {
       const accountName = document.getElementById("accountName").value.trim();
       const accountNumber = document.getElementById("accountNumber").value.trim();
       const amount = Number(document.getElementById("amount").value);
-      const hour = new Date().getHours();
-      if (hour < 9 || hour >= 17) return toast("Withdraw time is 9AM to 5PM.");
       if (amount < 100) return toast("Minimum withdraw is PHP 100.");
       try {
         const me = await new Promise((resolve) => {

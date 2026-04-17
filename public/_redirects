@@ -1,0 +1,18 @@
+/login /login.html 200
+/register /register.html 200
+/dashboard /dashboard.html 200
+/product /product.html 200
+/team /team.html 200
+/profile /profile.html 200
+/deposit /deposit.html 200
+/withdraw /withdraw.html 200
+/deposit-history /deposit-history.html 200
+/withdraw-history /withdraw-history.html 200
+/logs /logs.html 200
+/admin /admin.html 200
+
+# Keep API calls routed to backend
+/api/* https://puhunanph.onrender.com/api/:splat 200
+
+# Fallback for unknown routes
+/* /index.html 200

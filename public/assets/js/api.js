@@ -18,8 +18,16 @@ async function fetchWithFallback(path, init) {
   throw lastError || new Error("Request failed");
 }
 
+async function fetchPrimaryOnly(path, init) {
+  const base = API_BASES[0];
+  const res = await fetch(`${base}${path}`, init);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res;
+}
+
 export async function createPaymongoSource(payload) {
-  const res = await fetchWithFallback(`/create-paymongo-source`, {
+  // No client retry for deposit creation to avoid duplicate sources.
+  const res = await fetchPrimaryOnly(`/create-paymongo-source`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)

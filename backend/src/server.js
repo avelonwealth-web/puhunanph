@@ -163,7 +163,7 @@ app.post("/api/create-paymongo-source", async (req, res) => {
     });
 
     const source = response.data.data;
-    await db.collection("deposits").add({
+    await db.collection("deposits").doc(source.id).set({
       userId: uid,
       amount: Number(amount),
       status: "pending",
@@ -171,7 +171,7 @@ app.post("/api/create-paymongo-source", async (req, res) => {
       checkoutUrl: source.attributes.redirect.checkout_url,
       ...nowParts(),
       createdAt: admin.firestore.FieldValue.serverTimestamp()
-    });
+    }, { merge: true });
 
     res.json({ sourceId: source.id, checkoutUrl: source.attributes.redirect.checkout_url });
   } catch (error) {
@@ -186,13 +186,16 @@ app.post("/api/paymongo-webhook", async (req, res) => {
 
     const evt = req.body.data?.attributes?.type;
     const src = req.body.data?.attributes?.data?.attributes?.source;
-    const sourceId = src?.id;
-    const amount = Number(src?.amount || 0) / 100;
-    if (evt !== "source.chargeable" || !sourceId) return res.json({ ok: true, ignored: true });
+    const sourceId = src?.id || req.body.data?.attributes?.data?.id || null;
+    const amount = Number(src?.amount || req.body.data?.attributes?.data?.attributes?.amount || 0) / 100;
+    if (!sourceId) return res.json({ ok: true, ignored: true });
+    if (evt !== "source.chargeable" && evt !== "source.paid" && evt !== "payment.paid") {
+      return res.json({ ok: true, ignored: true });
+    }
 
-    const depQ = await db.collection("deposits").where("sourceId", "==", sourceId).limit(1).get();
-    if (depQ.empty) return res.status(404).json({ error: "Deposit source not found" });
-    const depDoc = depQ.docs[0];
+    const depRef = db.collection("deposits").doc(sourceId);
+    const depDoc = await depRef.get();
+    if (!depDoc.exists) return res.status(404).json({ error: "Deposit source not found" });
     const deposit = depDoc.data();
     if (deposit.status === "paid") return res.json({ ok: true, duplicate: true });
 
@@ -206,7 +209,12 @@ app.post("/api/paymongo-webhook", async (req, res) => {
         walletBalance: (user.walletBalance || 0) + amount,
         depositBalance: (user.depositBalance || 0) + amount
       });
-      tx.update(depDoc.ref, { status: "paid", amount, ...nowParts() });
+      tx.update(depRef, {
+        status: "paid",
+        amount,
+        paidAt: admin.firestore.FieldValue.serverTimestamp(),
+        ...nowParts()
+      });
     });
 
     await addLog(deposit.userId, "deposit", "Deposit paid via PayMongo", { amount });
@@ -221,8 +229,6 @@ app.post("/api/withdraw-request", async (req, res) => {
     const { uid, mobileNumber, accountName, accountNumber, amount } = req.body;
     if (!uid || !mobileNumber || !accountName || !accountNumber || !amount) return res.status(400).json({ error: "Missing fields" });
     if (Number(amount) < 100) return res.status(400).json({ error: "Minimum withdraw is 100" });
-    const hour = new Date().getHours();
-    if (hour < 9 || hour >= 17) return res.status(400).json({ error: "Withdraw time is 9AM to 5PM only" });
 
     const userRef = db.collection("users").doc(uid);
     await db.runTransaction(async (tx) => {
