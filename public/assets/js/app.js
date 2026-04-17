@@ -64,14 +64,16 @@ export function toEmailFromMobile(mobile) {
 export function requireAuth(callback) {
   let lastUid = null;
   return onAuthStateChanged(auth, async (user) => {
-    if (!user) {
+    await auth.authStateReady();
+    if (!auth.currentUser) {
       lastUid = null;
       window.location.href = "login.html";
       return;
     }
-    if (user.uid === lastUid) return;
-    lastUid = user.uid;
-    callback(user);
+    const uid = auth.currentUser.uid;
+    if (uid === lastUid) return;
+    lastUid = uid;
+    callback(auth.currentUser);
   });
 }
 
