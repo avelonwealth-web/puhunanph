@@ -19,7 +19,7 @@ import {
   limit
 } from "./app.js";
 import { PRODUCTS, getProductById } from "./products.js";
-import { peso, maskMobile, getQuery, toast, notifySound } from "./utils.js";
+import { peso, maskMobile, getQuery, toast, notifySound, shareOrCopyReferral } from "./utils.js";
 import { investProduct, loginMobile, registerMobile, addLog, adminQuickLogin, db } from "./app.js";
 import { doc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 import {
@@ -458,12 +458,14 @@ function setupProfilePage() {
 
           <button class="btn btn-danger" id="logoutBtn">Logout</button>
           <p class="muted">Referral Link: ${link}</p>
-          <button class="btn btn-outline" id="copyRefLink">Copy Referral Link</button>
+          <button class="btn btn-primary" id="copyRefLink">Share / copy referral link</button>
           <p class="muted">Referral Code: ${user?.referralCode || "-"}</p>
           <button class="btn btn-outline" id="copyRefCode">Copy Referral Code</button>
         </div>
       `;
-      document.getElementById("copyRefLink").onclick = async () => navigator.clipboard.writeText(link);
+      document.getElementById("copyRefLink").onclick = async () => {
+        await shareOrCopyReferral(link, toast);
+      };
       document.getElementById("copyRefCode").onclick = async () => navigator.clipboard.writeText(user?.referralCode || "");
       document.getElementById("logoutBtn").onclick = logout;
     });
@@ -537,8 +539,7 @@ function setupTeamPage() {
       if (linkNode) linkNode.textContent = link;
       if (copyBtn) {
         copyBtn.onclick = async () => {
-          await navigator.clipboard.writeText(link);
-          toast("Referral link copied.");
+          await shareOrCopyReferral(link, toast);
         };
       }
     });

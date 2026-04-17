@@ -58,6 +58,46 @@ export function toast(message) {
 }
 
 let audioCtx;
+/** Plain text na madalas i-autolink ng Messenger (URL sa sariling linya). */
+export function referralShareClipboardText(url) {
+  const u = String(url || "").trim();
+  return `Join PuhunanPH — register here:\n${u}`;
+}
+
+/**
+ * Mobile: buksan ang system share sheet (Messenger madalas makatanggap ng tunay na URL link).
+ * Desktop / kung ayaw: kopyahin ang buong mensahe (may URL sa bagong linya).
+ */
+export async function shareOrCopyReferral(url, toastFn) {
+  const u = String(url || "").trim();
+  if (!u) return;
+  const clip = referralShareClipboardText(u);
+  if (navigator.share) {
+    try {
+      await navigator.share({
+        title: "PuhunanPH",
+        text: "Join PuhunanPH — register using my link:",
+        url: u
+      });
+      toastFn?.("Shared. Sa Messenger piliin ang chat kung saan mo ipapadala.");
+      return;
+    } catch (e) {
+      if (e && e.name === "AbortError") return;
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(clip);
+    toastFn?.("Copied. I-paste sa Messenger — dapat clickable ang URL sa bagong linya.");
+  } catch {
+    try {
+      await navigator.clipboard.writeText(u);
+      toastFn?.("Link copied.");
+    } catch {
+      toastFn?.("Could not copy. Copy the link manually from the page.");
+    }
+  }
+}
+
 export function notifySound() {
   try {
     audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
