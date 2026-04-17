@@ -179,6 +179,10 @@ function setupDashboard() {
   const cards = document.getElementById("productCards");
   if (!cards) return;
   const homeUserMobile = document.getElementById("homeUserMobile");
+  const dashDepositBalance = document.getElementById("dashDepositBalance");
+  const dashTradingEarnings = document.getElementById("dashTradingEarnings");
+  const dashCommissionIncome = document.getElementById("dashCommissionIncome");
+  const dashDailyIncome = document.getElementById("dashDailyIncome");
   const cardsData = PRODUCTS
     .filter((p) => p.amount >= 100 && p.amount <= 10000)
     .slice(0, 15);
@@ -219,6 +223,10 @@ function setupDashboard() {
       const legacy = Number(user?.balance || 0);
       liveWallet = wallet > 0 ? wallet : legacy;
       document.getElementById("walletBalance").textContent = peso(liveWallet);
+      if (dashDepositBalance) dashDepositBalance.textContent = peso(Number(user?.depositBalance || 0));
+      if (dashTradingEarnings) dashTradingEarnings.textContent = peso(Number(user?.tradingEarnings || 0));
+      if (dashCommissionIncome) dashCommissionIncome.textContent = peso(Number(user?.commissionIncome || 0));
+      if (dashDailyIncome) dashDailyIncome.textContent = peso(Number(user?.dailyProductIncome || 0));
       if (homeUserMobile) homeUserMobile.textContent = user?.mobile || "-";
     });
     ads?.addEventListener("click", async () => {
@@ -256,6 +264,11 @@ function setupProductPage() {
     const investBtn = document.getElementById("confirmInvest");
     const listNode = document.getElementById("myInvestmentsList");
     const now = () => Date.now();
+    const createdMs = (row) => {
+      if (row?.createdAt?.seconds) return Number(row.createdAt.seconds) * 1000;
+      const fallback = new Date(`${row?.date || ""} ${row?.time || ""}`.trim()).getTime();
+      return Number.isFinite(fallback) ? fallback : 0;
+    };
     const isExpiredRow = (row) => {
       if (String(row?.status || "").toLowerCase() === "completed" || String(row?.status || "").toLowerCase() === "expired") return true;
       const endTs = new Date(row?.endDate || "").getTime();
@@ -264,11 +277,23 @@ function setupProductPage() {
     };
 
     streamCollection("investments", [
-      where("userId", "==", user.uid),
-      orderBy("createdAt", "desc")
+      where("userId", "==", user.uid)
     ], (rows) => {
+      const sortedRows = [...rows].sort((a, b) => createdMs(b) - createdMs(a));
+      const sameProductRows = sortedRows.filter((r) => String(r?.product || "") === String(product.name || ""));
+      const isActive = sameProductRows.some((r) =>
+        String(r?.status || "").toLowerCase() === "active" && !isExpiredRow(r)
+      );
+      if (activeNode) {
+        activeNode.textContent = isActive ? "Status: Active and running" : "Status: Expired or not active";
+      }
+      if (investBtn) {
+        investBtn.disabled = isActive;
+        investBtn.textContent = isActive ? "Already Active" : "Confirm Invest";
+      }
+
       if (listNode) {
-        listNode.innerHTML = rows.map((r) => {
+        listNode.innerHTML = sortedRows.map((r) => {
           const expired = isExpiredRow(r);
           const icon = PRODUCTS.find((p) => p.name === r.product)?.icon || "🌾";
           const statusText = expired ? "Expired" : "Active";
@@ -285,22 +310,6 @@ function setupProductPage() {
             </article>
           `;
         }).join("") || "<p class=\"muted\">No investments yet.</p>";
-      }
-    });
-
-    streamCollection("investments", [
-      where("userId", "==", user.uid),
-      where("product", "==", product.name),
-      where("status", "==", "active"),
-      orderBy("createdAt", "desc")
-    ], (rows) => {
-      const isActive = rows.some((r) => !isExpiredRow(r));
-      if (activeNode) {
-        activeNode.textContent = isActive ? "Status: Active and running" : "Status: Expired or not active";
-      }
-      if (investBtn) {
-        investBtn.disabled = isActive;
-        investBtn.textContent = isActive ? "Already Active" : "Confirm Invest";
       }
     });
 
@@ -347,6 +356,8 @@ function setupProfilePage() {
           <p class="muted">Wallet Balance: ${peso(walletShown)}</p>
           <p class="muted">Deposit Balance: ${peso(user?.depositBalance || 0)}</p>
           <p class="muted">Withdraw Balance: ${peso(user?.withdrawBalance || 0)}</p>
+          <p class="muted">Commission Income: ${peso(user?.commissionIncome || 0)}</p>
+          <p class="muted">Daily Product Income: ${peso(user?.dailyProductIncome || 0)}</p>
 
           <div class="grid grid-2 quick-links">
             <a class="card quick-link-card" href="deposit.html">Deposit</a>

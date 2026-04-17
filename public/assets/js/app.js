@@ -101,6 +101,8 @@ export async function adminQuickLogin(mobile, password) {
           walletBalance: 0,
           depositBalance: 0,
           withdrawBalance: 0,
+          commissionIncome: 0,
+          dailyProductIncome: 0,
           referralCode,
           referredBy: null,
           level1: 0,
@@ -144,6 +146,8 @@ export async function adminQuickLogin(mobile, password) {
       walletBalance: 0,
       depositBalance: 0,
       withdrawBalance: 0,
+      commissionIncome: 0,
+      dailyProductIncome: 0,
       referralCode,
       referredBy: null,
       level1: 0,
@@ -197,6 +201,8 @@ export async function registerMobile({ mobile, password, referralCode }) {
       walletBalance: 0,
       depositBalance: 0,
       withdrawBalance: 0,
+      commissionIncome: 0,
+      dailyProductIncome: 0,
       referralCode: myCode,
       referredBy: inviterUid,
       level1: 0,
@@ -276,14 +282,13 @@ export async function investProduct({ uid, product }) {
   const existing = await getDocs(query(
     collection(db, "investments"),
     where("userId", "==", uid),
-    where("product", "==", product.name),
-    where("status", "==", "active"),
-    orderBy("createdAt", "desc"),
-    limit(20)
+    limit(200)
   ));
   const now = Date.now();
   const hasRunning = existing.docs.some((d) => {
     const row = d.data() || {};
+    if (String(row?.product || "") !== String(product.name || "")) return false;
+    if (String(row?.status || "").toLowerCase() !== "active") return false;
     if (!row?.endDate) return true;
     const endTs = new Date(row.endDate).getTime();
     return Number.isFinite(endTs) ? endTs > now : true;
@@ -348,7 +353,8 @@ async function distributeReferralCommission(uid, amount) {
     try {
       await updateDoc(doc(db, "users", parentId), {
         walletBalance: increment(commission),
-        withdrawBalance: increment(commission)
+        withdrawBalance: increment(commission),
+        commissionIncome: increment(commission)
       });
       await addDoc(collection(db, "referralCommissions"), {
         userId: parentId,

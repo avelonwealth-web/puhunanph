@@ -181,7 +181,7 @@ async function addLog(userId, type, message, meta = {}) {
   });
 }
 
-async function distributeReferralCommissionServer(uid, amount) {
+async function distributeReferralCommissionServer(uid, amount, sourceType = "invest", sourceId = null) {
   const levels = [0.15, 0.05, 0.01];
   let currentId = uid;
   const baseUser = await db.collection("users").doc(uid).get();
@@ -196,12 +196,15 @@ async function distributeReferralCommissionServer(uid, amount) {
     const commission = Number(amount) * levels[i];
     await db.collection("users").doc(parentId).update({
       walletBalance: admin.firestore.FieldValue.increment(commission),
-      withdrawBalance: admin.firestore.FieldValue.increment(commission)
+      withdrawBalance: admin.firestore.FieldValue.increment(commission),
+      commissionIncome: admin.firestore.FieldValue.increment(commission)
     });
     await db.collection("referralCommissions").add({
       userId: parentId,
       fromUserId: currentId,
       fromUserMobile,
+      sourceType,
+      sourceId,
       level: i + 1,
       percent: levels[i],
       amount: commission,
@@ -348,14 +351,13 @@ app.post("/api/invest", async (req, res) => {
 
     const activeSnap = await db.collection("investments")
       .where("userId", "==", uid)
-      .where("product", "==", name)
-      .where("status", "==", "active")
-      .orderBy("createdAt", "desc")
-      .limit(20)
+      .limit(200)
       .get();
     const now = Date.now();
     const hasRunning = activeSnap.docs.some((d) => {
       const row = d.data() || {};
+      if (String(row?.product || "") !== name) return false;
+      if (String(row?.status || "").toLowerCase() !== "active") return false;
       if (!row?.endDate) return true;
       const endTs = new Date(row.endDate).getTime();
       return Number.isFinite(endTs) ? endTs > now : true;
@@ -394,7 +396,7 @@ app.post("/api/invest", async (req, res) => {
     });
 
     await addLog(uid, "investment", `Invested in ${name}`, { amount });
-    await distributeReferralCommissionServer(uid, amount);
+    await distributeReferralCommissionServer(uid, amount, "invest");
     res.json({ ok: true });
   } catch (error) {
     const msg = String(error?.message || "Failed to invest.");
@@ -470,6 +472,7 @@ app.post("/api/paymongo-webhook", async (req, res) => {
       });
     });
 
+    await distributeReferralCommissionServer(deposit.userId, amount, "deposit", depRef.id);
     await addLog(deposit.userId, "deposit", "Deposit paid via PayMongo", { amount });
     res.json({ ok: true });
   } catch (error) {
@@ -600,6 +603,9 @@ app.post("/api/firebase/complete-registration", async (req, res) => {
       walletBalance: baseUser.walletBalance || 0,
       depositBalance: baseUser.depositBalance || 0,
       withdrawBalance: baseUser.withdrawBalance || 0,
+      tradingEarnings: baseUser.tradingEarnings || 0,
+      commissionIncome: baseUser.commissionIncome || 0,
+      dailyProductIncome: baseUser.dailyProductIncome || 0,
       referralCode: myCode,
       referredBy: inviterUid,
       level1: baseUser.level1 || 0,
@@ -687,7 +693,8 @@ app.post("/api/run-daily-rewards", async (req, res) => {
         const userRef = db.collection("users").doc(inv.userId);
         const user = (await tx.get(userRef)).data();
         tx.update(userRef, {
-          walletBalance: (user.walletBalance || 0) + reward
+          walletBalance: (user.walletBalance || 0) + reward,
+          dailyProductIncome: (user.dailyProductIncome || 0) + reward
         });
         tx.set(db.collection("dailyRewards").doc(), {
           userId: inv.userId,
