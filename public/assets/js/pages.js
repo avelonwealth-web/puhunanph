@@ -25,7 +25,7 @@ function setSupportButton() {
   const btn = document.getElementById("supportBtn");
   if (!btn) return;
   btn.innerHTML = `
-    <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
+    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
       <path fill="currentColor" d="M9.04 15.31 8.9 19.1c.42 0 .6-.18.83-.4l1.99-1.91 4.12 3.02c.76.42 1.29.2 1.49-.7l2.7-12.67.01-.01c.24-1.1-.4-1.53-1.14-1.26L2.9 11.24c-1.08.42-1.06 1.03-.18 1.3l4.08 1.27 9.48-5.93c.44-.29.84-.13.5.16z"/>
     </svg>
   `;
@@ -269,11 +269,11 @@ function setupProfilePage() {
           <p class="muted">Deposit Balance: ${peso(user?.depositBalance || 0)}</p>
           <p class="muted">Withdraw Balance: ${peso(user?.withdrawBalance || 0)}</p>
 
-          <div class="grid grid-2">
-            <a class="card" href="deposit.html">Deposit</a>
-            <a class="card" href="withdraw.html">Withdraw</a>
-            <a class="card" href="deposit-history.html">Transactions</a>
-            <a class="card" href="logs.html">Logs</a>
+          <div class="grid grid-2 quick-links">
+            <a class="card quick-link-card" href="deposit.html">Deposit</a>
+            <a class="card quick-link-card" href="withdraw.html">Withdraw</a>
+            <a class="card quick-link-card" href="deposit-history.html">Transactions</a>
+            <a class="card quick-link-card" href="logs.html">Logs</a>
           </div>
 
           <button class="btn btn-danger" id="logoutBtn">Logout</button>
@@ -293,6 +293,8 @@ function setupProfilePage() {
 function setupTeamPage() {
   const container = document.getElementById("teamWrap");
   if (!container) return;
+  const linkNode = document.getElementById("teamReferralLink");
+  const copyBtn = document.getElementById("copyTeamReferral");
 
   const levelRates = { 1: 0.15, 2: 0.05, 3: 0.01 };
 
@@ -350,6 +352,16 @@ function setupTeamPage() {
   }
 
   requireAuth((u) => {
+    streamUser(u.uid, (user) => {
+      const link = `${window.location.origin}/register.html?ref=${user?.referralCode || ""}`;
+      if (linkNode) linkNode.textContent = link;
+      if (copyBtn) {
+        copyBtn.onclick = async () => {
+          await navigator.clipboard.writeText(link);
+          toast("Referral link copied.");
+        };
+      }
+    });
     streamCollection("referralCommissions", [where("userId", "==", u.uid), orderBy("createdAt", "desc")], (rows) => {
       [1, 2, 3].forEach((lv) => {
         renderLevel(lv, rows.filter((r) => r.level === lv));
@@ -463,7 +475,8 @@ function setupAdminPage() {
         <td>${(r.joinDate || "-")} ${(r.joinTime || "")}</td>
         <td>${usersByUid[r.referredBy]?.mobile || "-"}</td>
         <td>
-          <button class="btn btn-outline" data-adjust="${r.uid}">Adjust</button>
+          <button class="btn btn-primary" data-add="${r.uid}">Add</button>
+          <button class="btn btn-outline" data-deduct="${r.uid}">Deduct</button>
           <button class="btn btn-outline" data-ban="${r.uid}" data-state="${r.isBanned ? "1" : "0"}">${r.isBanned ? "Unban" : "Ban"}</button>
           <button class="btn btn-danger" data-delete="${r.uid}">Delete</button>
         </td>
@@ -565,18 +578,31 @@ function setupAdminPage() {
   });
 
   usersNode.addEventListener("click", async (e) => {
-    const adjustUid = e.target.dataset.adjust;
+    const addUid = e.target.dataset.add;
+    const deductUid = e.target.dataset.deduct;
     const banUid = e.target.dataset.ban;
     const deleteUid = e.target.dataset.delete;
     try {
-      if (adjustUid) {
-        const raw = prompt("Enter adjustment amount (negative to deduct):", "0");
+      if (addUid || deductUid) {
+        const mode = addUid ? "add" : "deduct";
+        const targetRaw = prompt("Choose target: balance / deposit / wallet / withdraw", "balance");
+        if (targetRaw === null) return;
+        const targetMap = {
+          balance: "balance",
+          deposit: "depositBalance",
+          wallet: "walletBalance",
+          withdraw: "withdrawBalance"
+        };
+        const target = targetMap[String(targetRaw).trim().toLowerCase()];
+        if (!target) return toast("Invalid target. Use balance/deposit/wallet/withdraw.");
+        const raw = prompt(`Enter amount to ${mode}:`, "0");
         if (raw === null) return;
         const amount = Number(raw);
-        if (!Number.isFinite(amount) || amount === 0) return toast("Invalid amount.");
-        await adminAdjustBalance(adjustUid, amount);
+        if (!Number.isFinite(amount) || amount <= 0) return toast("Invalid amount.");
+        const signedAmount = mode === "deduct" ? -Math.abs(amount) : Math.abs(amount);
+        await adminAdjustBalance(addUid || deductUid, signedAmount, target);
         notifySound();
-        return toast("Balance adjusted.");
+        return toast(`User ${mode}ed successfully.`);
       }
       if (banUid) {
         await adminSetBan(banUid, e.target.dataset.state === "0");

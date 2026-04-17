@@ -351,12 +351,13 @@ export async function claimAdsReward(uid) {
   await addLog(uid, "ads", "Claimed ads reward", { amount: 10 });
 }
 
-export async function adminAdjustBalance(uid, amountDelta) {
+export async function adminAdjustBalance(uid, amountDelta, target = "balance") {
+  const allowedTargets = ["balance", "walletBalance", "depositBalance", "withdrawBalance"];
+  const safeTarget = allowedTargets.includes(target) ? target : "balance";
   await updateDoc(doc(db, "users", uid), {
-    balance: increment(amountDelta),
-    walletBalance: increment(amountDelta)
+    [safeTarget]: increment(amountDelta)
   });
-  await addLog(uid, "admin", "Admin adjusted balance", { amount: amountDelta });
+  await addLog(uid, "admin", "Admin adjusted user funds", { amount: amountDelta, target: safeTarget });
 }
 
 export async function adminSetBan(uid, isBanned) {
