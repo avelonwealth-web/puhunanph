@@ -148,18 +148,6 @@ export async function apiCompleteRegistrationProfile(idToken, payload) {
   throw lastError || new Error("Failed to complete registration.");
 }
 
-export async function apiReferralInviteLink(idToken) {
-  const res = await fetchWithFallback(`/referral-invite-link`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${idToken}`
-    },
-    body: "{}"
-  });
-  return res.json();
-}
-
 export async function apiInvest(idToken, payload) {
   const base = API_BASES[0];
   const res = await fetch(`${base}/invest`, {
