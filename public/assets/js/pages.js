@@ -15,7 +15,8 @@ import {
   ensureUserReferralCode,
   saveDraft,
   streamDraft,
-  clearDraft
+  clearDraft,
+  limit
 } from "./app.js";
 import { PRODUCTS, getProductById } from "./products.js";
 import { peso, maskMobile, getQuery, toast, notifySound } from "./utils.js";
@@ -42,7 +43,9 @@ function setSupportButton() {
       <path fill="currentColor" d="M9.04 15.31 8.9 19.1c.42 0 .6-.18.83-.4l1.99-1.91 4.12 3.02c.76.42 1.29.2 1.49-.7l2.7-12.67.01-.01c.24-1.1-.4-1.53-1.14-1.26L2.9 11.24c-1.08.42-1.06 1.03-.18 1.3l4.08 1.27 9.48-5.93c.44-.29.84-.13.5.16z"/>
     </svg>
   `;
-  btn.addEventListener("click", () => window.open("https://t.me/", "_blank"));
+  btn.addEventListener("click", () =>
+    window.open("https://t.me/PuhunanPH_Customer_Service_bot", "_blank", "noopener,noreferrer")
+  );
 }
 
 function injectBrandHeader(page) {
@@ -102,12 +105,7 @@ function setupAuthForms() {
           await loginMobile(mobile, password);
         }
         if (remember) {
-          const shouldSave = confirm("Save mobile number and password on this device?");
-          if (shouldSave) {
-            localStorage.setItem("puhunanph_saved_login", JSON.stringify({ mobile, password }));
-          } else {
-            localStorage.removeItem("puhunanph_saved_login");
-          }
+          localStorage.setItem("puhunanph_saved_login", JSON.stringify({ mobile, password }));
         } else {
           localStorage.removeItem("puhunanph_saved_login");
         }
@@ -192,7 +190,6 @@ function setupDashboard() {
   if (!cards) return;
   const homeUserMobile = document.getElementById("homeUserMobile");
   const dashDepositBalance = document.getElementById("dashDepositBalance");
-  const dashTradingEarnings = document.getElementById("dashTradingEarnings");
   const dashCommissionIncome = document.getElementById("dashCommissionIncome");
   const dashDailyIncome = document.getElementById("dashDailyIncome");
   const cardsData = PRODUCTS
@@ -269,7 +266,6 @@ function setupDashboard() {
       liveWallet = wallet > 0 ? wallet : legacy;
       document.getElementById("walletBalance").textContent = peso(liveWallet);
       if (dashDepositBalance) dashDepositBalance.textContent = peso(Number(user?.depositBalance || 0));
-      if (dashTradingEarnings) dashTradingEarnings.textContent = peso(Number(user?.tradingEarnings || 0));
       if (dashCommissionIncome) dashCommissionIncome.textContent = peso(Number(user?.commissionIncome || 0));
       if (dashDailyIncome) dashDailyIncome.textContent = peso(Number(user?.dailyProductIncome || 0));
       if (homeUserMobile) homeUserMobile.textContent = user?.mobile || "-";
@@ -394,11 +390,28 @@ function setupProfilePage() {
       profile.innerHTML = `
         <div class="card grid">
           <h3>${user?.mobile || "-"}</h3>
-          <p class="muted">Wallet Balance: ${peso(walletShown)}</p>
-          <p class="muted">Deposit Balance: ${peso(user?.depositBalance || 0)}</p>
-          <p class="muted">Withdraw Balance: ${peso(user?.withdrawBalance || 0)}</p>
-          <p class="muted">Commission Income: ${peso(user?.commissionIncome || 0)}</p>
-          <p class="muted">Daily Product Income: ${peso(user?.dailyProductIncome || 0)}</p>
+          <div class="balance-grid grid grid-2">
+            <article class="card balance-tile">
+              <p class="muted">Wallet Balance</p>
+              <p class="balance-tile-value">${peso(walletShown)}</p>
+            </article>
+            <article class="card balance-tile">
+              <p class="muted">Deposit Balance</p>
+              <p class="balance-tile-value">${peso(user?.depositBalance || 0)}</p>
+            </article>
+            <article class="card balance-tile">
+              <p class="muted">Withdraw Balance</p>
+              <p class="balance-tile-value">${peso(user?.withdrawBalance || 0)}</p>
+            </article>
+            <article class="card balance-tile">
+              <p class="muted">Commission Income</p>
+              <p class="balance-tile-value">${peso(user?.commissionIncome || 0)}</p>
+            </article>
+            <article class="card balance-tile balance-tile-wide">
+              <p class="muted">Daily Product Income</p>
+              <p class="balance-tile-value">${peso(user?.dailyProductIncome || 0)}</p>
+            </article>
+          </div>
 
           <div class="grid grid-2 quick-links">
             <a class="card quick-link-card" href="deposit.html">Deposit</a>
@@ -544,10 +557,18 @@ function setupWithdrawPage() {
     });
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
+      if (form.dataset.withdrawSubmitting === "1") return;
+      const submitBtn = form.querySelector("button[type='submit']");
       const accountName = document.getElementById("accountName").value.trim();
       const accountNumber = document.getElementById("accountNumber").value.trim();
       const amount = Number(document.getElementById("amount").value);
       if (amount < 100) return toast("Minimum withdraw is PHP 100.");
+      form.dataset.withdrawSubmitting = "1";
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.dataset.prevLabel = submitBtn.textContent;
+        submitBtn.textContent = "Submitting...";
+      }
       try {
         const me = await new Promise((resolve) => {
           const unsub = streamUser(u.uid, (user) => {
@@ -555,21 +576,78 @@ function setupWithdrawPage() {
             resolve(user || {});
           });
         });
-        await requestWithdrawal({
+        const data = await requestWithdrawal({
           uid: u.uid,
           mobileNumber: me.mobile || "",
           accountName,
           accountNumber,
           amount
         });
-        await addLog(u.uid, "withdraw", "Withdraw request submitted", { amount });
+        if (!data?.duplicate) {
+          await addLog(u.uid, "withdraw", "Withdraw request submitted", { amount });
+        }
         await clearDraft(u.uid, "withdraw_form");
-        toast("Withdraw request submitted.");
+        toast(data?.duplicate ? "Withdraw request already received." : "Withdraw request submitted.");
         window.location.href = "profile.html";
       } catch (error) {
         toast(error.message);
+      } finally {
+        delete form.dataset.withdrawSubmitting;
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          if (submitBtn.dataset.prevLabel) {
+            submitBtn.textContent = submitBtn.dataset.prevLabel;
+            delete submitBtn.dataset.prevLabel;
+          }
+        }
       }
     });
+  });
+}
+
+function createdAtRowMs(row) {
+  const c = row?.createdAt;
+  if (c && typeof c.toMillis === "function") return c.toMillis();
+  if (c && typeof c.seconds === "number") return c.seconds * 1000;
+  const fallback = new Date(`${row?.date || ""} ${row?.time || ""}`.trim()).getTime();
+  return Number.isFinite(fallback) ? fallback : 0;
+}
+
+function setupTransactionsPage() {
+  const node = document.getElementById("depositRows");
+  if (!node) return;
+  let deposits = [];
+  let withdraws = [];
+  const render = () => {
+    const rows = [
+      ...deposits.map((r) => ({ kind: "Deposit", ...r })),
+      ...withdraws.map((r) => ({ kind: "Withdraw", ...r }))
+    ].sort((a, b) => createdAtRowMs(b) - createdAtRowMs(a));
+    node.innerHTML =
+      rows
+        .map((r) => {
+          const when = [r.date, r.time].filter(Boolean).join(" ").trim() || "-";
+          return `<tr><td>${r.kind}</td><td>${peso(r.amount)}</td><td>${when}</td><td>${r.status || "-"}</td></tr>`;
+        })
+        .join("") || "<tr><td colspan='4'>No records yet.</td></tr>";
+  };
+  requireAuth((u) => {
+    streamCollection(
+      "deposits",
+      [where("userId", "==", u.uid), orderBy("createdAt", "desc"), limit(120)],
+      (rows) => {
+        deposits = rows;
+        render();
+      }
+    );
+    streamCollection(
+      "withdraws",
+      [where("userId", "==", u.uid), orderBy("createdAt", "desc"), limit(120)],
+      (rows) => {
+        withdraws = rows;
+        render();
+      }
+    );
   });
 }
 
@@ -577,9 +655,16 @@ function setupSimpleHistory(collectionName, targetId) {
   const node = document.getElementById(targetId);
   if (!node) return;
   requireAuth((u) => {
-    streamCollection(collectionName, [where("userId", "==", u.uid), orderBy("createdAt", "desc")], (rows) => {
-      node.innerHTML = rows.map((r) => `<tr><td>${peso(r.amount)}</td><td>${r.date || "-"}</td><td>${r.status || "-"}</td></tr>`).join("") || "<tr><td colspan='3'>No records.</td></tr>";
-    });
+    streamCollection(
+      collectionName,
+      [where("userId", "==", u.uid), orderBy("createdAt", "desc"), limit(120)],
+      (rows) => {
+        node.innerHTML =
+          rows
+            .map((r) => `<tr><td>${peso(r.amount)}</td><td>${r.date || "-"}</td><td>${r.status || "-"}</td></tr>`)
+            .join("") || "<tr><td colspan='3'>No records.</td></tr>";
+      }
+    );
   });
 }
 
@@ -587,9 +672,16 @@ function setupLogsPage() {
   const target = document.getElementById("logsRows");
   if (!target) return;
   requireAuth((u) => {
-    streamCollection("logs", [where("userId", "==", u.uid), orderBy("createdAt", "desc")], (rows) => {
-      target.innerHTML = rows.map((r) => `<tr><td>${r.type}</td><td>${r.message}</td><td>${r.date} ${r.time}</td></tr>`).join("");
-    });
+    streamCollection(
+      "logs",
+      [where("userId", "==", u.uid), orderBy("createdAt", "desc"), limit(200)],
+      (rows) => {
+        target.innerHTML =
+          rows.length > 0
+            ? rows.map((r) => `<tr><td>${r.type || "-"}</td><td>${r.message || "-"}</td><td>${r.date || "-"} ${r.time || ""}</td></tr>`).join("")
+            : "<tr><td colspan='3'>No logs yet.</td></tr>";
+      }
+    );
   });
 }
 
@@ -900,7 +992,7 @@ function boot() {
   if (page === "profile") setupProfilePage();
   if (page === "deposit") setupDepositPage();
   if (page === "withdraw") setupWithdrawPage();
-  if (page === "deposit-history") setupSimpleHistory("deposits", "depositRows");
+  if (page === "deposit-history") setupTransactionsPage();
   if (page === "withdraw-history") setupSimpleHistory("withdraws", "withdrawRows");
   if (page === "logs") setupLogsPage();
   if (page === "admin") setupAdminPage();

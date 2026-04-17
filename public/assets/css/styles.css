@@ -481,6 +481,33 @@ select:focus {
   width: 100%;
 }
 
+.balance-grid {
+  align-items: stretch;
+  justify-items: center;
+}
+
+.balance-tile {
+  width: 100%;
+  min-height: 84px;
+  display: grid;
+  gap: 6px;
+  align-content: center;
+  text-align: center;
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.95), rgba(232, 255, 242, 0.84));
+  box-shadow: 0 12px 24px rgba(12, 62, 35, 0.14);
+}
+
+.balance-tile-value {
+  font-size: 1.02rem;
+  font-weight: 800;
+  color: #0c3d27;
+  letter-spacing: 0.2px;
+}
+
+.balance-tile-wide {
+  grid-column: 1 / -1;
+}
+
 .admin-page .container {
   width: 100%;
   max-width: 430px;

@@ -6,6 +6,7 @@ import admin from "firebase-admin";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
+import crypto from "crypto";
 
 dotenv.config();
 
@@ -502,8 +503,20 @@ app.post("/api/withdraw-request", async (req, res) => {
       return res.status(400).json({ error: "Withdrawal is allowed only when user has an active product." });
     }
 
+    const slot = Math.floor(Date.now() / 60000);
+    const normAcc = String(accountNumber || "").replace(/\s+/g, "");
+    const fpInput = `${uid}|${Number(amount)}|${normAcc}|${String(accountName || "").trim().toLowerCase()}|${slot}`;
+    const withdrawId = `w_${crypto.createHash("sha256").update(fpInput).digest("hex").slice(0, 32)}`;
+    const withdrawRef = db.collection("withdraws").doc(withdrawId);
+
+    let duplicate = false;
     const userRef = db.collection("users").doc(uid);
     await db.runTransaction(async (tx) => {
+      const existing = await tx.get(withdrawRef);
+      if (existing.exists) {
+        duplicate = true;
+        return;
+      }
       const user = (await tx.get(userRef)).data();
       const wallet = Number(user?.walletBalance || 0);
       const legacy = Number(user?.balance || 0);
@@ -514,7 +527,7 @@ app.post("/api/withdraw-request", async (req, res) => {
         balance: 0,
         withdrawBalance: (user.withdrawBalance || 0) + Number(amount)
       });
-      tx.set(db.collection("withdraws").doc(), {
+      tx.set(withdrawRef, {
         userId: uid,
         mobileNumber,
         accountName,
@@ -527,6 +540,7 @@ app.post("/api/withdraw-request", async (req, res) => {
       });
     });
 
+    if (duplicate) return res.json({ ok: true, duplicate: true });
     await addLog(uid, "withdraw", "Withdraw request submitted", { amount: Number(amount) });
     res.json({ ok: true });
   } catch (error) {

@@ -23,7 +23,7 @@ import {
   where
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 import { auth, db } from "./firebase-config.js";
-import { nowDateTime } from "./utils.js";
+import { nowDateTime, toast } from "./utils.js";
 import { apiCompleteRegistrationProfile } from "./api.js";
 
 export { auth, db };
@@ -62,11 +62,15 @@ export function toEmailFromMobile(mobile) {
 }
 
 export function requireAuth(callback) {
+  let lastUid = null;
   return onAuthStateChanged(auth, async (user) => {
     if (!user) {
+      lastUid = null;
       window.location.href = "login.html";
       return;
     }
+    if (user.uid === lastUid) return;
+    lastUid = user.uid;
     callback(user);
   });
 }
@@ -237,9 +241,17 @@ export function streamUser(uid, callback) {
   return onSnapshot(doc(db, "users", uid), (snap) => callback(snap.data()));
 }
 
-export function streamCollection(path, constraints, callback) {
+export function streamCollection(path, constraints, callback, onError) {
   const q = query(collection(db, path), ...constraints);
-  return onSnapshot(q, (snap) => callback(snap.docs.map((d) => ({ id: d.id, ...d.data() }))));
+  return onSnapshot(
+    q,
+    (snap) => callback(snap.docs.map((d) => ({ id: d.id, ...d.data() })))),
+    (error) => {
+      console.error("[streamCollection]", path, error);
+      if (typeof onError === "function") onError(error);
+      else toast(error?.message || "Failed to sync data. Check connection and try again.");
+    }
+  );
 }
 
 function draftDocRef(uid, key) {
