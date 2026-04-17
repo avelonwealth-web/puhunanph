@@ -542,7 +542,7 @@ function setupTeamPage() {
         };
       }
     });
-    streamCollection("referralCommissions", [where("userId", "==", u.uid), orderBy("createdAt", "desc")], (rows) => {
+    streamUserTimeline("referralCommissions", u.uid, 500, (rows) => {
       [1, 2, 3].forEach((lv) => {
         renderLevel(lv, rows.filter((r) => r.level === lv));
       });
@@ -649,6 +649,15 @@ function createdAtRowMs(row) {
   return Number.isFinite(fallback) ? fallback : 0;
 }
 
+/** Realtime where + orderBy createdAt + limit (composite indexes in firestore.indexes.json). */
+function streamUserTimeline(collectionName, uid, maxDocs, callback) {
+  return streamCollection(
+    collectionName,
+    [where("userId", "==", uid), orderBy("createdAt", "desc"), limit(maxDocs)],
+    callback
+  );
+}
+
 function setupTransactionsPage() {
   const node = document.getElementById("depositRows");
   if (!node) return;
@@ -668,22 +677,14 @@ function setupTransactionsPage() {
         .join("") || "<tr><td colspan='4'>No records yet.</td></tr>";
   };
   requireAuth((u) => {
-    streamCollection(
-      "deposits",
-      [where("userId", "==", u.uid), orderBy("createdAt", "desc"), limit(120)],
-      (rows) => {
-        deposits = rows;
-        render();
-      }
-    );
-    streamCollection(
-      "withdraws",
-      [where("userId", "==", u.uid), orderBy("createdAt", "desc"), limit(120)],
-      (rows) => {
-        withdraws = rows;
-        render();
-      }
-    );
+    streamUserTimeline("deposits", u.uid, 120, (rows) => {
+      deposits = rows;
+      render();
+    });
+    streamUserTimeline("withdraws", u.uid, 120, (rows) => {
+      withdraws = rows;
+      render();
+    });
   });
 }
 
@@ -691,16 +692,12 @@ function setupSimpleHistory(collectionName, targetId) {
   const node = document.getElementById(targetId);
   if (!node) return;
   requireAuth((u) => {
-    streamCollection(
-      collectionName,
-      [where("userId", "==", u.uid), orderBy("createdAt", "desc"), limit(120)],
-      (rows) => {
-        node.innerHTML =
-          rows
-            .map((r) => `<tr><td>${peso(r.amount)}</td><td>${r.date || "-"}</td><td>${r.status || "-"}</td></tr>`)
-            .join("") || "<tr><td colspan='3'>No records.</td></tr>";
-      }
-    );
+    streamUserTimeline(collectionName, u.uid, 120, (rows) => {
+      node.innerHTML =
+        rows
+          .map((r) => `<tr><td>${peso(r.amount)}</td><td>${r.date || "-"}</td><td>${r.status || "-"}</td></tr>`)
+          .join("") || "<tr><td colspan='3'>No records.</td></tr>";
+    });
   });
 }
 
@@ -708,16 +705,12 @@ function setupLogsPage() {
   const target = document.getElementById("logsRows");
   if (!target) return;
   requireAuth((u) => {
-    streamCollection(
-      "logs",
-      [where("userId", "==", u.uid), orderBy("createdAt", "desc"), limit(200)],
-      (rows) => {
-        target.innerHTML =
-          rows.length > 0
-            ? rows.map((r) => `<tr><td>${r.type || "-"}</td><td>${r.message || "-"}</td><td>${r.date || "-"} ${r.time || ""}</td></tr>`).join("")
-            : "<tr><td colspan='3'>No logs yet.</td></tr>";
-      }
-    );
+    streamUserTimeline("logs", u.uid, 200, (rows) => {
+      target.innerHTML =
+        rows.length > 0
+          ? rows.map((r) => `<tr><td>${r.type || "-"}</td><td>${r.message || "-"}</td><td>${r.date || "-"} ${r.time || ""}</td></tr>`).join("")
+          : "<tr><td colspan='3'>No logs yet.</td></tr>";
+    });
   });
 }
 

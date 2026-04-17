@@ -249,8 +249,25 @@ export async function logout() {
   window.location.href = "login.html";
 }
 
+function formatFirestoreListenerError(error) {
+  const code = error?.code || "";
+  const msg = String(error?.message || "");
+  if (code === "failed-precondition" || (/index/i.test(msg) && /create it/i.test(msg))) {
+    return "Firestore composite index is missing or still building. From the project root run: firebase deploy --only firestore:indexes — then in Firebase Console → Firestore → Indexes wait until Enabled.";
+  }
+  if (code === "permission-denied") return "Access denied. Sign in again or publish the latest firestore.rules.";
+  return msg || "Failed to sync data. Check your connection.";
+}
+
 export function streamUser(uid, callback) {
-  return onSnapshot(doc(db, "users", uid), (snap) => callback(snap.data()));
+  return onSnapshot(
+    doc(db, "users", uid),
+    (snap) => callback(snap.data()),
+    (error) => {
+      console.error("[streamUser]", uid, error);
+      toast(formatFirestoreListenerError(error));
+    }
+  );
 }
 
 export function streamCollection(path, constraints, callback, onError) {
@@ -261,7 +278,7 @@ export function streamCollection(path, constraints, callback, onError) {
     (error) => {
       console.error("[streamCollection]", path, error);
       if (typeof onError === "function") onError(error);
-      else toast(error?.message || "Failed to sync data. Check connection and try again.");
+      else toast(formatFirestoreListenerError(error));
     }
   );
 }
