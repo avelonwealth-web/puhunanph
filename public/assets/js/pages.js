@@ -20,19 +20,13 @@ import {
 } from "./app.js";
 import { PRODUCTS, getProductById } from "./products.js";
 import { peso, maskMobile, getQuery, toast, notifySound } from "./utils.js";
-import { investProduct, loginMobile, registerMobile, addLog, adminQuickLogin, db } from "./app.js";
-import { doc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+import { investProduct, loginMobile, registerMobile, addLog, adminQuickLogin } from "./app.js";
 import {
   createPaymongoSource,
   requestWithdrawal,
   apiApproveWithdraw,
-  apiDeleteUser,
   apiGetAdminFallbackData,
-  apiInvest,
-  apiAdminDeleteWithdraw,
-  apiAdminDeleteInvestment,
-  apiAdminDeleteLog,
-  apiAdminDeleteDailyReward
+  apiInvest
 } from "./api.js";
 
 function setSupportButton() {
@@ -85,7 +79,9 @@ function renderBottomNav(activePath) {
 
 function setupAuthForms() {
   const loginForm = document.getElementById("loginForm");
-  if (loginForm) {
+  if (loginForm && loginForm.dataset.authBound !== "1") {
+    loginForm.dataset.authBound = "1";
+
     const saved = JSON.parse(localStorage.getItem("puhunanph_saved_login") || "null");
     if (saved?.mobile) document.getElementById("mobile").value = saved.mobile;
     if (saved?.password) document.getElementById("password").value = saved.password;
@@ -99,13 +95,23 @@ function setupAuthForms() {
       const mobile = document.getElementById("mobile").value.trim();
       const password = document.getElementById("password").value.trim();
       const remember = document.getElementById("rememberLogin")?.checked;
+      const submitBtn = loginForm.querySelector("button[type='submit']");
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.dataset.prevLabel = submitBtn.textContent;
+        submitBtn.textContent = "Logging in...";
+      }
       try {
         const isQuickAdmin = await adminQuickLogin(mobile, password);
         if (!isQuickAdmin) {
           await loginMobile(mobile, password);
         }
         if (remember) {
-          localStorage.setItem("puhunanph_saved_login", JSON.stringify({ mobile, password }));
+          try {
+            localStorage.setItem("puhunanph_saved_login", JSON.stringify({ mobile, password }));
+          } catch (_) {
+            /* private mode / quota */
+          }
         } else {
           localStorage.removeItem("puhunanph_saved_login");
         }
@@ -116,12 +122,22 @@ function setupAuthForms() {
         } else {
           toast(error.message);
         }
+      } finally {
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          if (submitBtn.dataset.prevLabel) {
+            submitBtn.textContent = submitBtn.dataset.prevLabel;
+            delete submitBtn.dataset.prevLabel;
+          }
+        }
       }
     });
   }
 
   const registerForm = document.getElementById("registerForm");
-  if (registerForm) {
+  if (registerForm && registerForm.dataset.authBound !== "1") {
+    registerForm.dataset.authBound = "1";
+
     registerForm.addEventListener("submit", async (e) => {
       e.preventDefault();
       const mobile = document.getElementById("mobile").value.trim();
@@ -130,6 +146,12 @@ function setupAuthForms() {
       const referralCode = document.getElementById("referralCode").value.trim().toUpperCase();
       if (!mobile || !password || !confirmPassword || !referralCode) return toast("All fields are required.");
       if (password !== confirmPassword) return toast("Passwords do not match.");
+      const submitBtn = registerForm.querySelector("button[type='submit']");
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.dataset.prevLabel = submitBtn.textContent;
+        submitBtn.textContent = "Creating account...";
+      }
       try {
         await registerMobile({ mobile, password, referralCode });
         window.location.href = "dashboard.html";
@@ -138,6 +160,14 @@ function setupAuthForms() {
           toast("Registration blocked by Firestore rules. Publish the latest firestore.rules first.");
         } else {
           toast(error.message);
+        }
+      } finally {
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          if (submitBtn.dataset.prevLabel) {
+            submitBtn.textContent = submitBtn.dataset.prevLabel;
+            delete submitBtn.dataset.prevLabel;
+          }
         }
       }
     });
@@ -727,14 +757,6 @@ function setupAdminPage() {
     return Number.isFinite(t) ? t : 0;
   }
 
-  async function adminRemoveFirestoreDoc(collectionName, id, apiDelete) {
-    if (hasAdminBypassSession()) {
-      await apiDelete(id);
-    } else {
-      await deleteDoc(doc(db, collectionName, id));
-    }
-  }
-
   function renderAdminTables(rows) {
     const usersByUid = {};
     (rows.users || []).forEach((u) => { usersByUid[u.uid] = u; });
@@ -752,30 +774,29 @@ function setupAdminPage() {
           <button class="btn btn-primary" data-add="${r.uid}">Add</button>
           <button class="btn btn-outline" data-deduct="${r.uid}">Deduct</button>
           <button class="btn btn-outline" data-ban="${r.uid}" data-state="${r.isBanned ? "1" : "0"}">${r.isBanned ? "Unban" : "Ban"}</button>
-          <button class="btn btn-danger" data-delete="${r.uid}">Delete</button>
         </td>
       </tr>
     `).join("") || `<tr><td colspan="8">No users found.</td></tr>`;
 
     if (withdrawNode) {
       withdrawNode.innerHTML = (rows.withdraws || []).map((r) =>
-        `<tr><td>${r.mobileNumber || "-"}</td><td>${r.accountName || "-"}</td><td>${r.accountNumber || "-"}</td><td>${peso(r.amount || 0)}</td><td>${r.status || "-"}</td><td>${r.status === "pending" ? `<button class="btn btn-primary" data-approve="${r.id}">Approve</button> ` : ""}<button type="button" class="btn btn-danger" data-del-withdraw="${r.id}">Delete</button></td></tr>`
+        `<tr><td>${r.mobileNumber || "-"}</td><td>${r.accountName || "-"}</td><td>${r.accountNumber || "-"}</td><td>${peso(r.amount || 0)}</td><td>${r.status || "-"}</td><td>${r.status === "pending" ? `<button class="btn btn-primary" data-approve="${r.id}">Approve</button>` : "—"}</td></tr>`
       ).join("") || `<tr><td colspan="6">No withdraw requests.</td></tr>`;
     }
     if (invNode) {
       invNode.innerHTML = (rows.investments || []).map((r) =>
-        `<tr><td>${r.userMobile || usersByUid[r.userId]?.mobile || "-"}</td><td>${r.product}</td><td>${peso(r.amount)}</td><td>${r.duration} days</td><td>${r.status}</td><td><button type="button" class="btn btn-danger" data-del-investment="${r.id}">Delete</button></td></tr>`
-      ).join("") || `<tr><td colspan="6">No investments.</td></tr>`;
+        `<tr><td>${r.userMobile || usersByUid[r.userId]?.mobile || "-"}</td><td>${r.product}</td><td>${peso(r.amount)}</td><td>${r.duration} days</td><td>${r.status}</td></tr>`
+      ).join("") || `<tr><td colspan="5">No investments.</td></tr>`;
     }
     if (logsNode) {
       logsNode.innerHTML = (rows.logs || []).slice(0, 200).map((r) =>
-        `<tr><td>${r.userMobile || usersByUid[r.userId]?.mobile || "-"}</td><td>${r.type}</td><td>${r.message}</td><td>${r.date || "-"} ${r.time || ""}</td><td><button type="button" class="btn btn-danger" data-del-log="${r.id}">Delete</button></td></tr>`
-      ).join("") || `<tr><td colspan="5">No logs.</td></tr>`;
+        `<tr><td>${r.userMobile || usersByUid[r.userId]?.mobile || "-"}</td><td>${r.type}</td><td>${r.message}</td><td>${r.date || "-"} ${r.time || ""}</td></tr>`
+      ).join("") || `<tr><td colspan="4">No logs.</td></tr>`;
     }
     if (dailyNode) {
       dailyNode.innerHTML = (rows.dailyRewards || []).slice(0, 200).map((r) =>
-        `<tr><td>${r.userMobile || usersByUid[r.userId]?.mobile || "-"}</td><td>${r.investmentId}</td><td>${peso(r.amount)}</td><td>${r.date || "-"} ${r.time || ""}</td><td><button type="button" class="btn btn-danger" data-del-daily="${r.id}">Delete</button></td></tr>`
-      ).join("") || `<tr><td colspan="5">No daily rewards.</td></tr>`;
+        `<tr><td>${r.userMobile || usersByUid[r.userId]?.mobile || "-"}</td><td>${r.investmentId}</td><td>${peso(r.amount)}</td><td>${r.date || "-"} ${r.time || ""}</td></tr>`
+      ).join("") || `<tr><td colspan="4">No daily rewards.</td></tr>`;
     }
   }
 
@@ -811,9 +832,9 @@ function setupAdminPage() {
       } catch (error) {
         usersNode.innerHTML = `<tr><td colspan="8">Failed to load admin data fallback. Run backend and set admin secret.</td></tr>`;
         if (withdrawNode) withdrawNode.innerHTML = `<tr><td colspan="6">No data.</td></tr>`;
-        if (invNode) invNode.innerHTML = `<tr><td colspan="6">No data.</td></tr>`;
-        if (dailyNode) dailyNode.innerHTML = `<tr><td colspan="5">No data.</td></tr>`;
-        if (logsNode) logsNode.innerHTML = `<tr><td colspan="5">No data.</td></tr>`;
+        if (invNode) invNode.innerHTML = `<tr><td colspan="5">No data.</td></tr>`;
+        if (dailyNode) dailyNode.innerHTML = `<tr><td colspan="4">No data.</td></tr>`;
+        if (logsNode) logsNode.innerHTML = `<tr><td colspan="4">No data.</td></tr>`;
       }
     };
     loadFallback();
@@ -857,7 +878,6 @@ function setupAdminPage() {
     const addUid = e.target.dataset.add;
     const deductUid = e.target.dataset.deduct;
     const banUid = e.target.dataset.ban;
-    const deleteUid = e.target.dataset.delete;
     try {
       if (addUid || deductUid) {
         const mode = addUid ? "add" : "deduct";
@@ -884,75 +904,18 @@ function setupAdminPage() {
         notifySound();
         return toast("User status updated.");
       }
-      if (deleteUid) {
-        if (!confirm("Delete this user?")) return;
-        await apiDeleteUser(deleteUid);
-        notifySound();
-        return toast("User deleted.");
-      }
     } catch (error) {
       toast(error.message);
     }
   });
 
   withdrawNode?.addEventListener("click", async (e) => {
-    const delW = e.target.dataset.delWithdraw;
-    if (delW) {
-      if (!confirm("Delete this withdraw request?")) return;
-      try {
-        await adminRemoveFirestoreDoc("withdraws", delW, apiAdminDeleteWithdraw);
-        notifySound();
-        toast("Withdraw request deleted.");
-      } catch (error) {
-        toast(error.message);
-      }
-      return;
-    }
     const wid = e.target.dataset.approve;
     if (!wid) return;
     try {
       await apiApproveWithdraw(wid);
       notifySound();
       toast("Withdraw approved.");
-    } catch (error) {
-      toast(error.message);
-    }
-  });
-
-  invNode?.addEventListener("click", async (e) => {
-    const id = e.target.dataset.delInvestment;
-    if (!id) return;
-    if (!confirm("Delete this investment record?")) return;
-    try {
-      await adminRemoveFirestoreDoc("investments", id, apiAdminDeleteInvestment);
-      notifySound();
-      toast("Investment deleted.");
-    } catch (error) {
-      toast(error.message);
-    }
-  });
-
-  logsNode?.addEventListener("click", async (e) => {
-    const id = e.target.dataset.delLog;
-    if (!id) return;
-    if (!confirm("Delete this log entry?")) return;
-    try {
-      await adminRemoveFirestoreDoc("logs", id, apiAdminDeleteLog);
-      notifySound();
-      toast("Log deleted.");
-    } catch (error) {
-      toast(error.message);
-    }
-  });
-
-  dailyNode?.addEventListener("click", async (e) => {
-    const id = e.target.dataset.delDaily;
-    if (!id) return;
-    if (!confirm("Delete this daily reward record?")) return;
-    try {
-      await adminRemoveFirestoreDoc("dailyRewards", id, apiAdminDeleteDailyReward);
-      notifySound();
-      toast("Daily reward deleted.");
     } catch (error) {
       toast(error.message);
     }
