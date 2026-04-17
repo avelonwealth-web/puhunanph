@@ -523,13 +523,18 @@ function setupProfilePage() {
 
           <button class="btn btn-danger" id="logoutBtn">Logout</button>
           <p class="muted">Referral Link:<br /><a id="profileRefLink" href="${encodeURI(link)}" rel="noopener" style="word-break:break-all">${link}</a></p>
-          <button class="btn btn-primary" id="copyRefLink">Share / copy referral link</button>
+          <button class="btn btn-primary" id="copyRefLink" type="button">Copy referral link</button>
           <p class="muted">Referral Code: ${user?.referralCode || "-"}</p>
           <button class="btn btn-outline" id="copyRefCode">Copy Referral Code</button>
         </div>
       `;
       document.getElementById("copyRefLink").onclick = async () => {
-        await shareOrCopyReferral(link, toast);
+        try {
+          await navigator.clipboard.writeText(link);
+          toast("Referral link copied.");
+        } catch {
+          toast("Could not copy. Long-press the link above.");
+        }
       };
       document.getElementById("copyRefCode").onclick = async () => navigator.clipboard.writeText(user?.referralCode || "");
       document.getElementById("logoutBtn").onclick = logout;
