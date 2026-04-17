@@ -10,7 +10,8 @@ async function fetchWithFallback(path, init) {
     try {
       const res = await fetch(`${base}${path}`, init);
       if (res.ok) return res;
-      lastError = new Error(`HTTP ${res.status}`);
+      const data = await res.json().catch(() => ({}));
+      lastError = new Error(data.error || `HTTP ${res.status}`);
     } catch (error) {
       lastError = error;
     }
@@ -108,4 +109,19 @@ export async function apiCompleteRegistrationProfile(idToken, payload) {
     }
   }
   throw lastError || new Error("Failed to complete registration.");
+}
+
+export async function apiInvest(idToken, payload) {
+  const base = API_BASES[0];
+  const res = await fetch(`${base}/invest`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${idToken}`
+    },
+    body: JSON.stringify(payload)
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Failed to invest.");
+  return data;
 }

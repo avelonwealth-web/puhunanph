@@ -491,6 +491,12 @@ select:focus {
   justify-self: center;
 }
 
+.admin-page {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
 .admin-page .page-title,
 .admin-page .card h3 {
   text-align: center;
@@ -498,6 +504,7 @@ select:focus {
 
 .admin-page .card {
   width: 100%;
+  overflow-x: hidden;
 }
 
 .admin-page .brand-header {

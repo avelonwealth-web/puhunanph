@@ -60,6 +60,7 @@ service cloud.firestore {
         && isOwnerByField(request.resource.data.userId)
         && request.resource.data.amount is number
         && request.resource.data.mobileNumber is string
+        && request.resource.data.accountName is string
         && request.resource.data.accountNumber is string;
       allow update, delete: if isAdmin();
     }

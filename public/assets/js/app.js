@@ -306,7 +306,12 @@ export async function investProduct({ uid, product }) {
   });
 
   await addLog(uid, "investment", `Invested in ${product.name}`, { amount: product.amount });
-  await distributeReferralCommission(uid, product.amount);
+  // Do not block user investment when referral side-effects are denied by rules.
+  try {
+    await distributeReferralCommission(uid, product.amount);
+  } catch (error) {
+    if (error?.code !== "permission-denied") throw error;
+  }
 }
 
 async function distributeReferralCommission(uid, amount) {
@@ -321,22 +326,27 @@ async function distributeReferralCommission(uid, amount) {
     const parentId = userSnap.data().referredBy;
     if (!parentId) break;
     const commission = amount * levels[i];
-    await updateDoc(doc(db, "users", parentId), {
-      balance: increment(commission),
-      withdrawBalance: increment(commission)
-    });
-    await addDoc(collection(db, "referralCommissions"), {
-      userId: parentId,
-      fromUserId: currentId,
-      fromUserMobile,
-      level: i + 1,
-      percent: levels[i],
-      amount: commission,
-      date: at.date,
-      time: at.time,
-      createdAt: serverTimestamp()
-    });
-    await addLog(parentId, "referral", `Level ${i + 1} commission earned`, { amount: commission });
+    try {
+      await updateDoc(doc(db, "users", parentId), {
+        balance: increment(commission),
+        withdrawBalance: increment(commission)
+      });
+      await addDoc(collection(db, "referralCommissions"), {
+        userId: parentId,
+        fromUserId: currentId,
+        fromUserMobile,
+        level: i + 1,
+        percent: levels[i],
+        amount: commission,
+        date: at.date,
+        time: at.time,
+        createdAt: serverTimestamp()
+      });
+      await addLog(parentId, "referral", `Level ${i + 1} commission earned`, { amount: commission });
+    } catch (error) {
+      if (error?.code !== "permission-denied") throw error;
+      // Skip denied commission write on client-side rules.
+    }
     currentId = parentId;
   }
 }

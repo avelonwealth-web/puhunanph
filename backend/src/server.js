@@ -130,6 +130,39 @@ async function addLog(userId, type, message, meta = {}) {
   });
 }
 
+async function distributeReferralCommissionServer(uid, amount) {
+  const levels = [0.15, 0.05, 0.01];
+  let currentId = uid;
+  const baseUser = await db.collection("users").doc(uid).get();
+  const fromUserMobile = baseUser.exists ? baseUser.data().mobile || "" : "";
+  const at = nowParts();
+
+  for (let i = 0; i < levels.length; i += 1) {
+    const userSnap = await db.collection("users").doc(currentId).get();
+    if (!userSnap.exists) break;
+    const parentId = userSnap.data().referredBy;
+    if (!parentId) break;
+    const commission = Number(amount) * levels[i];
+    await db.collection("users").doc(parentId).update({
+      balance: admin.firestore.FieldValue.increment(commission),
+      withdrawBalance: admin.firestore.FieldValue.increment(commission)
+    });
+    await db.collection("referralCommissions").add({
+      userId: parentId,
+      fromUserId: currentId,
+      fromUserMobile,
+      level: i + 1,
+      percent: levels[i],
+      amount: commission,
+      date: at.date,
+      time: at.time,
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+    await addLog(parentId, "referral", `Level ${i + 1} commission earned`, { amount: commission });
+    currentId = parentId;
+  }
+}
+
 app.get("/api/health", (_, res) => res.json({ ok: true, service: "puhunanph-backend" }));
 
 app.use("/api", (req, res, next) => {
@@ -182,7 +215,65 @@ app.post("/api/create-paymongo-source", async (req, res) => {
 
     res.json({ sourceId: source.id, checkoutUrl: source.attributes.redirect.checkout_url });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    const paymongoDetail = error?.response?.data?.errors?.[0]?.detail
+      || error?.response?.data?.errors?.[0]?.title
+      || error?.response?.data?.errors?.[0]?.code;
+    const msg = paymongoDetail || error?.message || "Failed to create PayMongo source.";
+    const status = error?.response?.status || 500;
+    res.status(status).json({ error: msg });
+  }
+});
+
+app.post("/api/invest", async (req, res) => {
+  try {
+    const token = extractBearerToken(req);
+    if (!token) return res.status(401).json({ error: "Missing bearer token" });
+    const decoded = await admin.auth().verifyIdToken(token);
+    const uid = decoded.uid;
+    const product = req.body?.product || {};
+    const name = String(product.name || "").trim();
+    const amount = Number(product.amount);
+    const rate = Number(product.rate);
+    const duration = Number(product.duration);
+    if (!name || !Number.isFinite(amount) || amount <= 0 || !Number.isFinite(rate) || !Number.isFinite(duration) || duration <= 0) {
+      return res.status(400).json({ error: "Invalid product payload." });
+    }
+
+    await db.runTransaction(async (tx) => {
+      const userRef = db.collection("users").doc(uid);
+      const userSnap = await tx.get(userRef);
+      if (!userSnap.exists) throw new Error("User not found.");
+      const user = userSnap.data();
+      if ((user.balance || 0) < amount) throw new Error("Insufficient balance.");
+      tx.update(userRef, {
+        balance: (user.balance || 0) - amount,
+        walletBalance: (user.walletBalance || 0) + amount
+      });
+      const start = new Date();
+      const end = new Date(start);
+      end.setDate(start.getDate() + duration);
+      tx.set(db.collection("investments").doc(), {
+        userId: uid,
+        product: name,
+        amount,
+        profit: amount * rate,
+        duration,
+        status: "active",
+        startDate: start.toISOString(),
+        endDate: end.toISOString(),
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+    });
+
+    await addLog(uid, "investment", `Invested in ${name}`, { amount });
+    await distributeReferralCommissionServer(uid, amount);
+    res.json({ ok: true });
+  } catch (error) {
+    const msg = String(error?.message || "Failed to invest.");
+    if (/insufficient balance/i.test(msg) || /invalid product payload/i.test(msg) || /user not found/i.test(msg)) {
+      return res.status(400).json({ error: msg });
+    }
+    res.status(500).json({ error: msg });
   }
 });
 
@@ -259,7 +350,11 @@ app.post("/api/withdraw-request", async (req, res) => {
     await addLog(uid, "withdraw", "Withdraw request submitted", { amount: Number(amount) });
     res.json({ ok: true });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    const msg = String(error?.message || "Failed to submit withdrawal.");
+    if (/insufficient withdraw balance/i.test(msg) || /minimum withdraw/i.test(msg) || /missing fields/i.test(msg)) {
+      return res.status(400).json({ error: msg });
+    }
+    res.status(500).json({ error: msg });
   }
 });
 

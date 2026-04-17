@@ -1,5 +1,6 @@
 import {
   claimAdsReward,
+  auth,
   logout,
   requireAuth,
   hasAdminBypassSession,
@@ -19,7 +20,7 @@ import {
 import { PRODUCTS, getProductById } from "./products.js";
 import { peso, maskMobile, getQuery, toast, notifySound } from "./utils.js";
 import { investProduct, loginMobile, registerMobile, addLog, adminQuickLogin } from "./app.js";
-import { createPaymongoSource, requestWithdrawal, apiApproveWithdraw, apiDeleteUser, apiGetAdminFallbackData } from "./api.js";
+import { createPaymongoSource, requestWithdrawal, apiApproveWithdraw, apiDeleteUser, apiGetAdminFallbackData, apiInvest } from "./api.js";
 
 function setSupportButton() {
   const btn = document.getElementById("supportBtn");
@@ -244,6 +245,19 @@ function setupProductPage() {
         toast("Investment successful.");
         window.location.href = "dashboard.html";
       } catch (error) {
+        if (error?.code === "permission-denied" || /missing or insufficient permissions/i.test(error?.message || "")) {
+          try {
+            const idToken = await auth.currentUser?.getIdToken();
+            if (!idToken) throw new Error("Session expired. Please login again.");
+            await apiInvest(idToken, { product });
+            toast("Investment successful.");
+            window.location.href = "dashboard.html";
+            return;
+          } catch (fallbackError) {
+            toast(fallbackError.message);
+            return;
+          }
+        }
         if ((error?.message || "").toLowerCase().includes("insufficient balance")) {
           toast("Insufficient balance. Redirecting to deposit page.");
           setTimeout(() => { window.location.href = "deposit.html"; }, 500);
