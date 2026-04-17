@@ -64,16 +64,26 @@ export function toEmailFromMobile(mobile) {
 export function requireAuth(callback) {
   let lastUid = null;
   return onAuthStateChanged(auth, async (user) => {
-    await auth.authStateReady();
-    if (!auth.currentUser) {
+    try {
+      await Promise.race([
+        auth.authStateReady(),
+        new Promise((resolve) => {
+          setTimeout(resolve, 4000);
+        })
+      ]);
+    } catch (_) {
+      /* ignore */
+    }
+    const signedIn = auth.currentUser || user;
+    if (!signedIn) {
       lastUid = null;
       window.location.href = "login.html";
       return;
     }
-    const uid = auth.currentUser.uid;
+    const uid = signedIn.uid;
     if (uid === lastUid) return;
     lastUid = uid;
-    callback(auth.currentUser);
+    callback(signedIn);
   });
 }
 
