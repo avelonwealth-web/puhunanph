@@ -58,15 +58,15 @@ export function toast(message) {
 }
 
 let audioCtx;
-/** Plain text na madalas i-autolink ng Messenger (URL sa sariling linya). */
+/** Plain text na madalas i-autolink ng Messenger (URL sa sariling linya, ASCII). */
 export function referralShareClipboardText(url) {
   const u = String(url || "").trim();
-  return `Join PuhunanPH — register here:\n${u}`;
+  return `Join PuhunanPH - register here:\n${u}`;
 }
 
 /**
- * Mobile: buksan ang system share sheet (Messenger madalas makatanggap ng tunay na URL link).
- * Desktop / kung ayaw: kopyahin ang buong mensahe (may URL sa bagong linya).
+ * Mobile: system share sheet. Messenger often drops linkification when both `text` and `url`
+ * are set; we try URL-only first, then plain-text body, then clipboard.
  */
 export async function shareOrCopyReferral(url, toastFn) {
   const u = String(url || "").trim();
@@ -74,12 +74,15 @@ export async function shareOrCopyReferral(url, toastFn) {
   const clip = referralShareClipboardText(u);
   if (navigator.share) {
     try {
-      await navigator.share({
-        title: "PuhunanPH",
-        text: "Join PuhunanPH — register using my link:",
-        url: u
-      });
-      toastFn?.("Shared. Sa Messenger piliin ang chat kung saan mo ipapadala.");
+      await navigator.share({ title: "PuhunanPH", url: u });
+      toastFn?.("Shared. Piliin ang Messenger; dapat clickable ang link.");
+      return;
+    } catch (e) {
+      if (e && e.name === "AbortError") return;
+    }
+    try {
+      await navigator.share({ title: "PuhunanPH", text: clip });
+      toastFn?.("Shared. Kung plain text lang, i-paste ang URL sa bagong linya.");
       return;
     } catch (e) {
       if (e && e.name === "AbortError") return;

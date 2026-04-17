@@ -464,7 +464,7 @@ function setupProfilePage() {
           </div>
 
           <button class="btn btn-danger" id="logoutBtn">Logout</button>
-          <p class="muted">Referral Link: ${link}</p>
+          <p class="muted">Referral Link:<br /><a id="profileRefLink" href="${encodeURI(link)}" rel="noopener" style="word-break:break-all">${link}</a></p>
           <button class="btn btn-primary" id="copyRefLink">Share / copy referral link</button>
           <p class="muted">Referral Code: ${user?.referralCode || "-"}</p>
           <button class="btn btn-outline" id="copyRefCode">Copy Referral Code</button>
@@ -543,7 +543,15 @@ function setupTeamPage() {
   requireAuth((u) => {
     streamUser(u.uid, (user) => {
       const link = referralJoinUrl(user?.referralCode) || `${window.location.origin}/register.html`;
-      if (linkNode) linkNode.textContent = link;
+      if (linkNode) {
+        linkNode.textContent = "";
+        const a = document.createElement("a");
+        a.href = link;
+        a.textContent = link;
+        a.rel = "noopener";
+        a.style.wordBreak = "break-all";
+        linkNode.appendChild(a);
+      }
       if (copyBtn) {
         copyBtn.onclick = async () => {
           await shareOrCopyReferral(link, toast);
