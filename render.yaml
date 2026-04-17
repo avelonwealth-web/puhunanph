@@ -22,6 +22,8 @@ services:
         sync: false
       - key: PAYMONGO_WEBHOOK_SECRET
         sync: false
+      - key: PAYMONGO_SOURCE_TYPE
+        value: qrph
       - key: CRON_SECRET
         sync: false
       - key: ADMIN_ACTION_SECRET

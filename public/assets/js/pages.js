@@ -466,6 +466,7 @@ function setupLogsPage() {
 function setupAdminPage() {
   const usersNode = document.getElementById("adminUsers");
   if (!usersNode) return;
+  const adminInstallBtn = document.getElementById("adminInstallBtn");
   const adminLogoutBtn = document.getElementById("adminLogoutBtn");
   const codeNode = document.getElementById("adminReferralCode");
   const linkNode = document.getElementById("adminReferralLink");
@@ -475,6 +476,24 @@ function setupAdminPage() {
   const invNode = document.getElementById("adminInvestments");
   const dailyNode = document.getElementById("adminDailyRewards");
   const logsNode = document.getElementById("adminLogs");
+  let deferredInstallPrompt = null;
+
+  window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+    if (adminInstallBtn) adminInstallBtn.hidden = false;
+  });
+
+  adminInstallBtn?.addEventListener("click", async () => {
+    if (!deferredInstallPrompt) {
+      toast("Install prompt is not available on this device/browser yet.");
+      return;
+    }
+    deferredInstallPrompt.prompt();
+    await deferredInstallPrompt.userChoice.catch(() => null);
+    deferredInstallPrompt = null;
+    adminInstallBtn.hidden = true;
+  });
 
   if (adminLogoutBtn) {
     adminLogoutBtn.addEventListener("click", logout);
@@ -507,17 +526,17 @@ function setupAdminPage() {
     }
     if (invNode) {
       invNode.innerHTML = (rows.investments || []).map((r) =>
-        `<tr><td>${r.userId}</td><td>${r.product}</td><td>${peso(r.amount)}</td><td>${r.duration} days</td><td>${r.status}</td></tr>`
+        `<tr><td>${r.userMobile || usersByUid[r.userId]?.mobile || "-"}</td><td>${r.product}</td><td>${peso(r.amount)}</td><td>${r.duration} days</td><td>${r.status}</td></tr>`
       ).join("") || `<tr><td colspan="5">No investments.</td></tr>`;
     }
     if (logsNode) {
       logsNode.innerHTML = (rows.logs || []).slice(0, 200).map((r) =>
-        `<tr><td>${usersByUid[r.userId]?.mobile || "-"}</td><td>${r.type}</td><td>${r.message}</td><td>${r.date || "-"} ${r.time || ""}</td></tr>`
+        `<tr><td>${r.userMobile || usersByUid[r.userId]?.mobile || "-"}</td><td>${r.type}</td><td>${r.message}</td><td>${r.date || "-"} ${r.time || ""}</td></tr>`
       ).join("") || `<tr><td colspan="4">No logs.</td></tr>`;
     }
     if (dailyNode) {
       dailyNode.innerHTML = (rows.dailyRewards || []).slice(0, 200).map((r) =>
-        `<tr><td>${r.userId}</td><td>${r.investmentId}</td><td>${peso(r.amount)}</td><td>${r.date || "-"} ${r.time || ""}</td></tr>`
+        `<tr><td>${r.userMobile || usersByUid[r.userId]?.mobile || "-"}</td><td>${r.investmentId}</td><td>${peso(r.amount)}</td><td>${r.date || "-"} ${r.time || ""}</td></tr>`
       ).join("") || `<tr><td colspan="4">No daily rewards.</td></tr>`;
     }
   }
@@ -546,6 +565,7 @@ function setupAdminPage() {
       localStorage.setItem("puhunanph_admin_bypass_refcode", bypassCode);
     }
     setAdminReferralUI(bypassCode);
+    if (adminInstallBtn) adminInstallBtn.hidden = false;
     const loadFallback = async () => {
       try {
         const data = await apiGetAdminFallbackData(200);
@@ -570,6 +590,7 @@ function setupAdminPage() {
         setAdminReferralUI(fixedCode || me?.referralCode || "");
       })();
       if (!me?.isAdmin) return (usersNode.innerHTML = "<p>Unauthorized.</p>");
+      if (adminInstallBtn) adminInstallBtn.hidden = false;
       const current = { users: [], withdraws: [], investments: [], logs: [], dailyRewards: [] };
       streamCollection("users", [orderBy("joinDate", "desc")], (rows) => {
         current.users = rows;

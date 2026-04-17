@@ -182,15 +182,21 @@ app.post("/api/create-paymongo-source", async (req, res) => {
     if (!Number.isFinite(phpAmount) || phpAmount <= 0) {
       return res.status(400).json({ error: "Invalid deposit amount." });
     }
+    const paymongoSourceType = (process.env.PAYMONGO_SOURCE_TYPE || "qrph").toLowerCase();
+    const allowedTypes = ["qrph", "gcash", "grab_pay", "paymaya"];
+    const finalType = allowedTypes.includes(paymongoSourceType) ? paymongoSourceType : "qrph";
+    const successRedirect = `${frontendBase}/deposit-history.html`;
+    const failedRedirect = `${frontendBase}/deposit.html`;
+
     const payload = {
       data: {
         attributes: {
           amount: Math.round(phpAmount * 100),
           redirect: {
-            success: "https://puhunanph.netlify.app/deposit-history.html",
-            failed: "https://puhunanph.netlify.app/deposit.html"
+            success: successRedirect,
+            failed: failedRedirect
           },
-          type: "gcash",
+          type: finalType,
           currency: "PHP"
         }
       }
@@ -456,10 +462,21 @@ app.get("/api/admin/fallback-data", async (req, res) => {
     ]);
 
     const users = usersSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    const usersByUid = {};
+    users.forEach((u) => { if (u?.uid) usersByUid[u.uid] = u; });
     const withdraws = withdrawsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-    const investments = investmentsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-    const logs = logsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-    const dailyRewards = dailyRewardsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    const investments = investmentsSnap.docs.map((d) => {
+      const row = { id: d.id, ...d.data() };
+      return { ...row, userMobile: usersByUid[row.userId]?.mobile || row.userMobile || "" };
+    });
+    const logs = logsSnap.docs.map((d) => {
+      const row = { id: d.id, ...d.data() };
+      return { ...row, userMobile: usersByUid[row.userId]?.mobile || row.userMobile || "" };
+    });
+    const dailyRewards = dailyRewardsSnap.docs.map((d) => {
+      const row = { id: d.id, ...d.data() };
+      return { ...row, userMobile: usersByUid[row.userId]?.mobile || row.userMobile || "" };
+    });
 
     res.json({ ok: true, users, withdraws, investments, logs, dailyRewards, fetchedAt: new Date().toISOString() });
   } catch (error) {

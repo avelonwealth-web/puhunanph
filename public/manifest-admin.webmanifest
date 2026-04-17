@@ -1,0 +1,24 @@
+{
+  "name": "PuhunanPH Admin",
+  "short_name": "Puhunan Admin",
+  "description": "Admin panel app for PuhunanPH",
+  "start_url": "/admin.html",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#e8f8ed",
+  "theme_color": "#0f7a37",
+  "icons": [
+    {
+      "src": "/images/logo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/images/logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
