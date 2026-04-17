@@ -198,15 +198,27 @@ function setupDashboard() {
       <button class="btn btn-primary" data-invest="${p.id}">Invest Now</button>
     </article>
   `).join("");
+  let liveWallet = 0;
   cards.addEventListener("click", (e) => {
     const id = e.target.dataset.invest;
-    if (id) window.location.href = `product.html?product=${id}`;
+    if (!id) return;
+    const picked = getProductById(id);
+    if (!picked) return;
+    if (liveWallet < Number(picked.amount || 0)) {
+      toast("Insufficient wallet balance. Redirecting to deposit page.");
+      window.location.href = "deposit.html";
+      return;
+    }
+    window.location.href = `product.html?product=${id}`;
   });
 
   const ads = document.getElementById("adsRewardBtn");
   requireAuth((u) => {
     streamUser(u.uid, (user) => {
-      document.getElementById("walletBalance").textContent = peso(user?.balance || 0);
+      const wallet = Number(user?.walletBalance || 0);
+      const legacy = Number(user?.balance || 0);
+      liveWallet = wallet > 0 ? wallet : legacy;
+      document.getElementById("walletBalance").textContent = peso(liveWallet);
       if (homeUserMobile) homeUserMobile.textContent = user?.mobile || "-";
     });
     ads?.addEventListener("click", async () => {
@@ -235,23 +247,39 @@ function setupProductPage() {
       <p class="muted">Investment: ${peso(product.amount)}</p>
       <p class="muted">Profit: ${peso(product.amount * product.rate)} daily (10%)</p>
       <p class="muted">Duration: ${product.duration} days</p>
+      <p id="productActiveStatus" class="muted">Status: checking...</p>
       <button id="confirmInvest" class="btn btn-primary">Confirm Invest</button>
     </div>
   `;
   requireAuth((user) => {
-    document.getElementById("confirmInvest").addEventListener("click", async () => {
+    const activeNode = document.getElementById("productActiveStatus");
+    const investBtn = document.getElementById("confirmInvest");
+    streamCollection("investments", [
+      where("userId", "==", user.uid),
+      where("product", "==", product.name),
+      where("status", "==", "active")
+    ], (rows) => {
+      const isActive = rows.length > 0;
+      if (activeNode) {
+        activeNode.textContent = isActive ? "Status: Active and running" : "Status: Not active yet";
+      }
+      if (investBtn) {
+        investBtn.disabled = isActive;
+        investBtn.textContent = isActive ? "Already Active" : "Confirm Invest";
+      }
+    });
+
+    investBtn.addEventListener("click", async () => {
       try {
         await investProduct({ uid: user.uid, product });
-        toast("Investment successful.");
-        window.location.href = "dashboard.html";
+        toast("Investment successful. Product is now active.");
       } catch (error) {
         if (error?.code === "permission-denied" || /missing or insufficient permissions/i.test(error?.message || "")) {
           try {
             const idToken = await auth.currentUser?.getIdToken();
             if (!idToken) throw new Error("Session expired. Please login again.");
             await apiInvest(idToken, { product });
-            toast("Investment successful.");
-            window.location.href = "dashboard.html";
+            toast("Investment successful. Product is now active.");
             return;
           } catch (fallbackError) {
             toast(fallbackError.message);
@@ -275,11 +303,13 @@ function setupProfilePage() {
   requireAuth((u) => {
     streamUser(u.uid, (user) => {
       const link = `${window.location.origin}/register.html?ref=${user?.referralCode || ""}`;
+      const wallet = Number(user?.walletBalance || 0);
+      const legacy = Number(user?.balance || 0);
+      const walletShown = wallet > 0 ? wallet : legacy;
       profile.innerHTML = `
         <div class="card grid">
           <h3>${user?.mobile || "-"}</h3>
-          <p class="muted">Wallet Balance: ${peso(user?.walletBalance || 0)}</p>
-          <p class="muted">Balance: ${peso(user?.balance || 0)}</p>
+          <p class="muted">Wallet Balance: ${peso(walletShown)}</p>
           <p class="muted">Deposit Balance: ${peso(user?.depositBalance || 0)}</p>
           <p class="muted">Withdraw Balance: ${peso(user?.withdrawBalance || 0)}</p>
 
@@ -391,14 +421,26 @@ function setupDepositPage() {
     autosaveFormWithDraft({ uid: u.uid, key: "deposit_form", fields: ["amount"] });
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
+      const submitBtn = form.querySelector("button[type='submit']");
       const amount = Number(document.getElementById("amount").value);
       if (!amount || amount <= 0) return toast("Invalid amount.");
       try {
+        if (submitBtn) {
+          submitBtn.disabled = true;
+          submitBtn.textContent = "Processing...";
+        }
         const data = await createPaymongoSource({ uid: u.uid, amount });
-        document.getElementById("qrWrap").innerHTML = `<p class="muted">Pay via QR URL:</p><a href="${data.checkoutUrl}" target="_blank">${data.checkoutUrl}</a>`;
+        document.getElementById("qrWrap").innerHTML = `<p class="muted">Redirecting to secure PayMongo checkout...</p><a href="${data.checkoutUrl}" target="_blank" rel="noopener">Tap here if not redirected</a>`;
         await clearDraft(u.uid, "deposit_form");
+        // One-click flow: automatically open PayMongo checkout page.
+        window.location.href = data.checkoutUrl;
       } catch (error) {
         toast(error.message);
+      } finally {
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.textContent = "Continue";
+        }
       }
     });
   });
@@ -436,6 +478,7 @@ function setupWithdrawPage() {
         await addLog(u.uid, "withdraw", "Withdraw request submitted", { amount });
         await clearDraft(u.uid, "withdraw_form");
         toast("Withdraw request submitted.");
+        window.location.href = "profile.html";
       } catch (error) {
         toast(error.message);
       }
@@ -505,7 +548,7 @@ function setupAdminPage() {
     usersNode.innerHTML = (rows.users || []).map((r) => `
       <tr>
         <td>${r.mobile || "-"}</td>
-        <td>${peso(r.balance || 0)}</td>
+        <td>${peso(r.walletBalance || 0)}</td>
         <td>${peso(r.depositBalance || 0)}</td>
         <td>${peso(r.withdrawBalance || 0)}</td>
         <td>${(r.joinDate || "-")} ${(r.joinTime || "")}</td>
@@ -623,16 +666,15 @@ function setupAdminPage() {
     try {
       if (addUid || deductUid) {
         const mode = addUid ? "add" : "deduct";
-        const targetRaw = prompt("Choose target: balance / deposit / wallet / withdraw", "balance");
+        const targetRaw = prompt("Choose target: wallet / deposit / withdraw", "wallet");
         if (targetRaw === null) return;
         const targetMap = {
-          balance: "balance",
           deposit: "depositBalance",
           wallet: "walletBalance",
           withdraw: "withdrawBalance"
         };
         const target = targetMap[String(targetRaw).trim().toLowerCase()];
-        if (!target) return toast("Invalid target. Use balance/deposit/wallet/withdraw.");
+        if (!target) return toast("Invalid target. Use wallet/deposit/withdraw.");
         const raw = prompt(`Enter amount to ${mode}:`, "0");
         if (raw === null) return;
         const amount = Number(raw);

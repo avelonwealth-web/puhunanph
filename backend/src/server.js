@@ -144,7 +144,7 @@ async function distributeReferralCommissionServer(uid, amount) {
     if (!parentId) break;
     const commission = Number(amount) * levels[i];
     await db.collection("users").doc(parentId).update({
-      balance: admin.firestore.FieldValue.increment(commission),
+      walletBalance: admin.firestore.FieldValue.increment(commission),
       withdrawBalance: admin.firestore.FieldValue.increment(commission)
     });
     await db.collection("referralCommissions").add({
@@ -250,10 +250,13 @@ app.post("/api/invest", async (req, res) => {
       const userSnap = await tx.get(userRef);
       if (!userSnap.exists) throw new Error("User not found.");
       const user = userSnap.data();
-      if ((user.balance || 0) < amount) throw new Error("Insufficient balance.");
+      const wallet = Number(user.walletBalance || 0);
+      const legacy = Number(user.balance || 0);
+      const effectiveWallet = wallet > 0 ? wallet : legacy;
+      if (effectiveWallet < amount) throw new Error("Insufficient balance.");
       tx.update(userRef, {
-        balance: (user.balance || 0) - amount,
-        walletBalance: (user.walletBalance || 0) + amount
+        walletBalance: effectiveWallet - amount,
+        balance: 0
       });
       const start = new Date();
       const end = new Date(start);
@@ -309,7 +312,6 @@ app.post("/api/paymongo-webhook", async (req, res) => {
       if (!userSnap.exists) throw new Error("User not found");
       const user = userSnap.data();
       tx.update(userRef, {
-        balance: (user.balance || 0) + amount,
         walletBalance: (user.walletBalance || 0) + amount,
         depositBalance: (user.depositBalance || 0) + amount
       });
@@ -337,9 +339,14 @@ app.post("/api/withdraw-request", async (req, res) => {
     const userRef = db.collection("users").doc(uid);
     await db.runTransaction(async (tx) => {
       const user = (await tx.get(userRef)).data();
-      if ((user.withdrawBalance || 0) < amount) throw new Error("Insufficient withdraw balance");
+      const wallet = Number(user?.walletBalance || 0);
+      const legacy = Number(user?.balance || 0);
+      const effectiveWallet = wallet > 0 ? wallet : legacy;
+      if (effectiveWallet < amount) throw new Error("Insufficient wallet balance");
       tx.update(userRef, {
-        withdrawBalance: (user.withdrawBalance || 0) - Number(amount)
+        walletBalance: effectiveWallet - Number(amount),
+        balance: 0,
+        withdrawBalance: (user.withdrawBalance || 0) + Number(amount)
       });
       tx.set(db.collection("withdraws").doc(), {
         userId: uid,
@@ -348,6 +355,7 @@ app.post("/api/withdraw-request", async (req, res) => {
         accountNumber,
         amount: Number(amount),
         status: "pending",
+        walletDeducted: true,
         ...nowParts(),
         createdAt: admin.firestore.FieldValue.serverTimestamp()
       });
@@ -357,7 +365,7 @@ app.post("/api/withdraw-request", async (req, res) => {
     res.json({ ok: true });
   } catch (error) {
     const msg = String(error?.message || "Failed to submit withdrawal.");
-    if (/insufficient withdraw balance/i.test(msg) || /minimum withdraw/i.test(msg) || /missing fields/i.test(msg)) {
+    if (/insufficient wallet balance/i.test(msg) || /minimum withdraw/i.test(msg) || /missing fields/i.test(msg)) {
       return res.status(400).json({ error: msg });
     }
     res.status(500).json({ error: msg });
@@ -373,7 +381,31 @@ app.post("/api/admin/approve-withdraw/:withdrawId", async (req, res) => {
     if (!snap.exists) return res.status(404).json({ error: "Withdraw not found" });
     const wd = snap.data();
     if (wd.status === "approved") return res.json({ ok: true, alreadyApproved: true });
-    await ref.update({ status: "approved", approvedAt: admin.firestore.FieldValue.serverTimestamp() });
+    if (wd.walletDeducted === true) {
+      await ref.update({ status: "approved", approvedAt: admin.firestore.FieldValue.serverTimestamp() });
+    } else {
+      await db.runTransaction(async (tx) => {
+        const userRef = db.collection("users").doc(wd.userId);
+        const userSnap = await tx.get(userRef);
+        if (!userSnap.exists) throw new Error("User not found");
+        const user = userSnap.data() || {};
+        const amount = Number(wd.amount || 0);
+        const wallet = Number(user.walletBalance || 0);
+        const legacy = Number(user.balance || 0);
+        const effectiveWallet = wallet > 0 ? wallet : legacy;
+        if (effectiveWallet < amount) throw new Error("Insufficient wallet balance for approval");
+        tx.update(userRef, {
+          walletBalance: effectiveWallet - amount,
+          balance: 0,
+          withdrawBalance: (user.withdrawBalance || 0) + amount
+        });
+        tx.update(ref, {
+          status: "approved",
+          walletDeducted: true,
+          approvedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+      });
+    }
     await addLog(wd.userId, "withdraw", "Withdraw request approved", { amount: wd.amount });
     res.json({ ok: true });
   } catch (error) {
@@ -418,7 +450,6 @@ app.post("/api/firebase/complete-registration", async (req, res) => {
     await userRef.set({
       uid,
       mobile,
-      balance: baseUser.balance || 0,
       walletBalance: baseUser.walletBalance || 0,
       depositBalance: baseUser.depositBalance || 0,
       withdrawBalance: baseUser.withdrawBalance || 0,
@@ -509,7 +540,6 @@ app.post("/api/run-daily-rewards", async (req, res) => {
         const userRef = db.collection("users").doc(inv.userId);
         const user = (await tx.get(userRef)).data();
         tx.update(userRef, {
-          balance: (user.balance || 0) + reward,
           walletBalance: (user.walletBalance || 0) + reward
         });
         tx.set(db.collection("dailyRewards").doc(), {

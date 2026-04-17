@@ -98,7 +98,6 @@ export async function adminQuickLogin(mobile, password) {
         await setDoc(ref, {
           uid,
           mobile,
-          balance: 0,
           walletBalance: 0,
           depositBalance: 0,
           withdrawBalance: 0,
@@ -142,7 +141,6 @@ export async function adminQuickLogin(mobile, password) {
     await setDoc(doc(db, "users", cred.user.uid), {
       uid: cred.user.uid,
       mobile,
-      balance: 0,
       walletBalance: 0,
       depositBalance: 0,
       withdrawBalance: 0,
@@ -196,7 +194,6 @@ export async function registerMobile({ mobile, password, referralCode }) {
     await setDoc(doc(db, "users", cred.user.uid), {
       uid: cred.user.uid,
       mobile,
-      balance: 0,
       walletBalance: 0,
       depositBalance: 0,
       withdrawBalance: 0,
@@ -281,10 +278,13 @@ export async function investProduct({ uid, product }) {
     const us = await tx.get(userRef);
     if (!us.exists()) throw new Error("User not found.");
     const user = us.data();
-    if (user.balance < product.amount) throw new Error("Insufficient balance.");
+    const wallet = Number(user?.walletBalance || 0);
+    const legacy = Number(user?.balance || 0);
+    const effectiveWallet = wallet > 0 ? wallet : legacy;
+    if (effectiveWallet < product.amount) throw new Error("Insufficient balance.");
     tx.update(userRef, {
-      balance: user.balance - product.amount,
-      walletBalance: increment(product.amount)
+      walletBalance: effectiveWallet - product.amount,
+      balance: 0
     });
 
     const start = new Date();
@@ -328,7 +328,7 @@ async function distributeReferralCommission(uid, amount) {
     const commission = amount * levels[i];
     try {
       await updateDoc(doc(db, "users", parentId), {
-        balance: increment(commission),
+        walletBalance: increment(commission),
         withdrawBalance: increment(commission)
       });
       await addDoc(collection(db, "referralCommissions"), {
@@ -357,13 +357,13 @@ export async function claimAdsReward(uid) {
   const qs = await getDocs(qy);
   if (!qs.empty) throw new Error("Ads reward already claimed today.");
   await addDoc(collection(db, "adsRewards"), { userId: uid, amount: 10, date: today, createdAt: serverTimestamp() });
-  await updateDoc(doc(db, "users", uid), { balance: increment(10), walletBalance: increment(10) });
+  await updateDoc(doc(db, "users", uid), { walletBalance: increment(10) });
   await addLog(uid, "ads", "Claimed ads reward", { amount: 10 });
 }
 
-export async function adminAdjustBalance(uid, amountDelta, target = "balance") {
-  const allowedTargets = ["balance", "walletBalance", "depositBalance", "withdrawBalance"];
-  const safeTarget = allowedTargets.includes(target) ? target : "balance";
+export async function adminAdjustBalance(uid, amountDelta, target = "walletBalance") {
+  const allowedTargets = ["walletBalance", "depositBalance", "withdrawBalance"];
+  const safeTarget = allowedTargets.includes(target) ? target : "walletBalance";
   await updateDoc(doc(db, "users", uid), {
     [safeTarget]: increment(amountDelta)
   });

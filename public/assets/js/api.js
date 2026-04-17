@@ -20,13 +20,23 @@ async function fetchWithFallback(path, init) {
 }
 
 async function fetchPrimaryOnly(path, init) {
-  const base = API_BASES[0];
-  const res = await fetch(`${base}${path}`, init);
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || `HTTP ${res.status}`);
+  let networkError = null;
+  for (const base of API_BASES) {
+    try {
+      const res = await fetch(`${base}${path}`, init);
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
+      return res;
+    } catch (error) {
+      // Only try next base on network-level failures.
+      const isNetworkError = !error?.message || /failed to fetch|networkerror|load failed|fetch/i.test(String(error.message));
+      if (!isNetworkError) throw error;
+      networkError = error;
+    }
   }
-  return res;
+  throw networkError || new Error("Request failed");
 }
 
 export async function createPaymongoSource(payload) {
