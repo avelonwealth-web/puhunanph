@@ -182,9 +182,12 @@ app.post("/api/create-paymongo-source", async (req, res) => {
     if (!Number.isFinite(phpAmount) || phpAmount <= 0) {
       return res.status(400).json({ error: "Invalid deposit amount." });
     }
-    const paymongoSourceType = (process.env.PAYMONGO_SOURCE_TYPE || "qrph").toLowerCase();
-    const allowedTypes = ["qrph", "gcash", "grab_pay", "paymaya"];
-    const finalType = allowedTypes.includes(paymongoSourceType) ? paymongoSourceType : "qrph";
+    const paymongoSourceType = (process.env.PAYMONGO_SOURCE_TYPE || "gcash").toLowerCase();
+    const allowedTypes = ["gcash", "grab_pay", "paymaya"];
+    // PayMongo /v1/sources does not accept qrph as source type.
+    const finalType = paymongoSourceType === "qrph"
+      ? "gcash"
+      : (allowedTypes.includes(paymongoSourceType) ? paymongoSourceType : "gcash");
     const successRedirect = `${frontendBase}/deposit-history.html`;
     const failedRedirect = `${frontendBase}/deposit.html`;
 
@@ -245,6 +248,24 @@ app.post("/api/invest", async (req, res) => {
       return res.status(400).json({ error: "Invalid product payload." });
     }
 
+    const activeSnap = await db.collection("investments")
+      .where("userId", "==", uid)
+      .where("product", "==", name)
+      .where("status", "==", "active")
+      .orderBy("createdAt", "desc")
+      .limit(20)
+      .get();
+    const now = Date.now();
+    const hasRunning = activeSnap.docs.some((d) => {
+      const row = d.data() || {};
+      if (!row?.endDate) return true;
+      const endTs = new Date(row.endDate).getTime();
+      return Number.isFinite(endTs) ? endTs > now : true;
+    });
+    if (hasRunning) {
+      return res.status(400).json({ error: "This product is still active. Reinvest after expiry." });
+    }
+
     await db.runTransaction(async (tx) => {
       const userRef = db.collection("users").doc(uid);
       const userSnap = await tx.get(userRef);
@@ -279,7 +300,7 @@ app.post("/api/invest", async (req, res) => {
     res.json({ ok: true });
   } catch (error) {
     const msg = String(error?.message || "Failed to invest.");
-    if (/insufficient balance/i.test(msg) || /invalid product payload/i.test(msg) || /user not found/i.test(msg)) {
+    if (/insufficient balance/i.test(msg) || /invalid product payload/i.test(msg) || /user not found/i.test(msg) || /still active/i.test(msg)) {
       return res.status(400).json({ error: msg });
     }
     res.status(500).json({ error: msg });
