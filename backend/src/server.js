@@ -142,10 +142,17 @@ app.post("/api/create-paymongo-source", async (req, res) => {
   try {
     const { uid, amount } = req.body;
     if (!uid || !amount) return res.status(400).json({ error: "uid and amount required" });
+    if (!process.env.PAYMONGO_SECRET_KEY) {
+      return res.status(503).json({ error: "PayMongo is not configured on backend yet." });
+    }
+    const phpAmount = Number(amount);
+    if (!Number.isFinite(phpAmount) || phpAmount <= 0) {
+      return res.status(400).json({ error: "Invalid deposit amount." });
+    }
     const payload = {
       data: {
         attributes: {
-          amount: Math.round(Number(amount) * 100),
+          amount: Math.round(phpAmount * 100),
           redirect: {
             success: "https://puhunanph.netlify.app/deposit-history.html",
             failed: "https://puhunanph.netlify.app/deposit.html"
@@ -165,7 +172,7 @@ app.post("/api/create-paymongo-source", async (req, res) => {
     const source = response.data.data;
     await db.collection("deposits").doc(source.id).set({
       userId: uid,
-      amount: Number(amount),
+      amount: phpAmount,
       status: "pending",
       sourceId: source.id,
       checkoutUrl: source.attributes.redirect.checkout_url,

@@ -21,7 +21,10 @@ async function fetchWithFallback(path, init) {
 async function fetchPrimaryOnly(path, init) {
   const base = API_BASES[0];
   const res = await fetch(`${base}${path}`, init);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `HTTP ${res.status}`);
+  }
   return res;
 }
 

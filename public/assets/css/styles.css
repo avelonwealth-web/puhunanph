@@ -482,7 +482,13 @@ select:focus {
 }
 
 .admin-page .container {
-  width: min(100%, 430px);
+  width: 100%;
+  max-width: 430px;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  padding-left: 12px;
+  padding-right: 12px;
+  justify-self: center;
 }
 
 .admin-page .page-title,
@@ -492,6 +498,21 @@ select:focus {
 
 .admin-page .card {
   width: 100%;
+}
+
+.admin-page .brand-header {
+  width: 100%;
+  max-width: 430px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.admin-page .table {
+  font-size: 0.82rem;
+}
+
+.admin-page .support-btn {
+  display: none;
 }
 
 .dashboard-icon {

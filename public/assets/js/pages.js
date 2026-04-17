@@ -452,6 +452,7 @@ function setupLogsPage() {
 function setupAdminPage() {
   const usersNode = document.getElementById("adminUsers");
   if (!usersNode) return;
+  const adminLogoutBtn = document.getElementById("adminLogoutBtn");
   const codeNode = document.getElementById("adminReferralCode");
   const linkNode = document.getElementById("adminReferralLink");
   const copyCodeBtn = document.getElementById("copyAdminCode");
@@ -460,6 +461,10 @@ function setupAdminPage() {
   const invNode = document.getElementById("adminInvestments");
   const dailyNode = document.getElementById("adminDailyRewards");
   const logsNode = document.getElementById("adminLogs");
+
+  if (adminLogoutBtn) {
+    adminLogoutBtn.addEventListener("click", logout);
+  }
 
   function renderAdminTables(rows) {
     const usersByUid = {};
@@ -632,26 +637,7 @@ function setupAdminPage() {
 }
 
 function setupConnectionBanner() {
-  let node = document.getElementById("connectionBanner");
-  if (!node) {
-    node = document.createElement("div");
-    node.id = "connectionBanner";
-    node.style.position = "sticky";
-    node.style.top = "0";
-    node.style.zIndex = "9";
-    node.style.padding = "8px 12px";
-    node.style.fontSize = "12px";
-    node.style.textAlign = "center";
-    node.style.color = "#10311b";
-    document.body.prepend(node);
-  }
-  const sync = () => {
-    node.textContent = navigator.onLine ? "Online: realtime sync active" : "Offline mode: limited actions";
-    node.style.background = navigator.onLine ? "#e6f8ed" : "#fff3cd";
-  };
-  window.addEventListener("online", sync);
-  window.addEventListener("offline", sync);
-  sync();
+  // Disabled by request.
 }
 
 function registerServiceWorker() {
@@ -674,7 +660,6 @@ function boot() {
   const page = document.body.dataset.page;
   injectBrandHeader(page);
   setSupportButton();
-  setupConnectionBanner();
   registerServiceWorker();
   renderBottomNav(`${page}.html`);
   setupAuthForms();
