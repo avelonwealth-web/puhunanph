@@ -32,7 +32,8 @@ import {
   apiAdminDeleteWithdraw,
   apiAdminDeleteInvestment,
   apiAdminDeleteLog,
-  apiAdminDeleteDailyReward
+  apiAdminDeleteDailyReward,
+  apiReferralInviteLink
 } from "./api.js";
 
 function setSupportButton() {
@@ -53,6 +54,49 @@ function referralJoinUrl(code) {
   const c = String(code || "").trim();
   if (!c) return "";
   return `${window.location.origin}/r/${encodeURIComponent(c)}`;
+}
+
+const inviteUrlMemo = { uid: "", code: "", url: "", inflight: null };
+
+/** Resolves Bitly (via backend) when configured; falls back to /r/{code} on same origin. */
+async function getReferralInviteShareUrl(uid, referralCode) {
+  const c = String(referralCode || "").trim();
+  const fallback = referralJoinUrl(c) || `${window.location.origin}/register.html`;
+  if (!c) return fallback;
+  if (inviteUrlMemo.uid !== uid) {
+    inviteUrlMemo.uid = uid;
+    inviteUrlMemo.code = "";
+    inviteUrlMemo.url = "";
+    inviteUrlMemo.inflight = null;
+  }
+  if (inviteUrlMemo.code !== c) {
+    inviteUrlMemo.code = c;
+    inviteUrlMemo.url = "";
+    inviteUrlMemo.inflight = null;
+  }
+  if (inviteUrlMemo.url) return inviteUrlMemo.url;
+  if (inviteUrlMemo.inflight) return inviteUrlMemo.inflight;
+
+  inviteUrlMemo.inflight = (async () => {
+    try {
+      const idToken = await auth.currentUser?.getIdToken();
+      if (!idToken) {
+        inviteUrlMemo.url = fallback;
+        return fallback;
+      }
+      const data = await apiReferralInviteLink(idToken);
+      const u = data?.url && String(data.url).trim();
+      const out = u && /^https:\/\//i.test(u) ? u : fallback;
+      inviteUrlMemo.url = out;
+      return out;
+    } catch {
+      inviteUrlMemo.url = fallback;
+      return fallback;
+    } finally {
+      inviteUrlMemo.inflight = null;
+    }
+  })();
+  return inviteUrlMemo.inflight;
 }
 
 function injectBrandHeader(page) {
@@ -425,8 +469,8 @@ function setupProfilePage() {
   const profile = document.getElementById("profileData");
   if (!profile) return;
   requireAuth((u) => {
-    streamUser(u.uid, (user) => {
-      const link = referralJoinUrl(user?.referralCode) || `${window.location.origin}/register.html`;
+    streamUser(u.uid, async (user) => {
+      const link = await getReferralInviteShareUrl(u.uid, user?.referralCode);
       const wallet = Number(user?.walletBalance || 0);
       const legacy = Number(user?.balance || 0);
       const walletShown = wallet > 0 ? wallet : legacy;
@@ -541,8 +585,8 @@ function setupTeamPage() {
   }
 
   requireAuth((u) => {
-    streamUser(u.uid, (user) => {
-      const link = referralJoinUrl(user?.referralCode) || `${window.location.origin}/register.html`;
+    streamUser(u.uid, async (user) => {
+      const link = await getReferralInviteShareUrl(u.uid, user?.referralCode);
       if (linkNode) {
         linkNode.textContent = "";
         const a = document.createElement("a");
