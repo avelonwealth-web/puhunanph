@@ -9,6 +9,11 @@ export function nowDateTime() {
   };
 }
 
+/** YYYY-MM-DD in Asia/Manila — daily ads cap, daily reward de-dupe, cron alignment. */
+export function phDateKey(d = new Date()) {
+  return d.toLocaleDateString("en-CA", { timeZone: "Asia/Manila" });
+}
+
 export function maskMobile(mobile = "") {
   if (mobile.length < 8) return mobile;
   return `${mobile.slice(0, 4)}****${mobile.slice(-3)}`;

@@ -23,8 +23,8 @@ import {
   where
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 import { auth, db } from "./firebase-config.js";
-import { nowDateTime, toast } from "./utils.js";
-import { apiCompleteRegistrationProfile } from "./api.js";
+import { nowDateTime, phDateKey, toast } from "./utils.js";
+import { apiApplyInvestReferral, apiCompleteRegistrationProfile } from "./api.js";
 
 export { auth, db };
 const REF_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -343,6 +343,7 @@ export async function investProduct({ uid, product }) {
   }
 
   const userRef = doc(db, "users", uid);
+  const invRef = doc(collection(db, "investments"));
   await runTransaction(db, async (tx) => {
     const us = await tx.get(userRef);
     if (!us.exists()) throw new Error("User not found.");
@@ -360,7 +361,6 @@ export async function investProduct({ uid, product }) {
     const end = new Date(start);
     end.setDate(start.getDate() + product.duration);
 
-    const invRef = doc(collection(db, "investments"));
     tx.set(invRef, {
       userId: uid,
       product: product.name,
@@ -370,59 +370,25 @@ export async function investProduct({ uid, product }) {
       status: "active",
       startDate: start.toISOString(),
       endDate: end.toISOString(),
+      referralCommissionApplied: false,
       createdAt: serverTimestamp()
     });
   });
 
   await addLog(uid, "investment", `Invested in ${product.name}`, { amount: product.amount });
-  // Do not block user investment when referral side-effects are denied by rules.
-  try {
-    await distributeReferralCommission(uid, product.amount);
-  } catch (error) {
-    if (error?.code !== "permission-denied") throw error;
-  }
-}
-
-async function distributeReferralCommission(uid, amount) {
-  const levels = [0.15, 0.05, 0.01];
-  let currentId = uid;
-  const baseUser = await getDoc(doc(db, "users", uid));
-  const fromUserMobile = baseUser.exists() ? baseUser.data().mobile : "";
-  const at = nowDateTime();
-  for (let i = 0; i < levels.length; i += 1) {
-    const userSnap = await getDoc(doc(db, "users", currentId));
-    if (!userSnap.exists()) break;
-    const parentId = userSnap.data().referredBy;
-    if (!parentId) break;
-    const commission = amount * levels[i];
+  const idToken = await auth.currentUser?.getIdToken();
+  if (idToken) {
     try {
-      await updateDoc(doc(db, "users", parentId), {
-        walletBalance: increment(commission),
-        withdrawBalance: increment(commission),
-        commissionIncome: increment(commission)
-      });
-      await addDoc(collection(db, "referralCommissions"), {
-        userId: parentId,
-        fromUserId: currentId,
-        fromUserMobile,
-        level: i + 1,
-        percent: levels[i],
-        amount: commission,
-        date: at.date,
-        time: at.time,
-        createdAt: serverTimestamp()
-      });
-      await addLog(parentId, "referral", `Level ${i + 1} commission earned`, { amount: commission });
+      await apiApplyInvestReferral(idToken, invRef.id);
     } catch (error) {
-      if (error?.code !== "permission-denied") throw error;
-      // Skip denied commission write on client-side rules.
+      console.warn("[invest] referral apply failed", error);
+      toast("Investment saved. If team commission is missing, refresh in a minute or contact support.");
     }
-    currentId = parentId;
   }
 }
 
 export async function claimAdsReward(uid) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = phDateKey();
   const qy = query(collection(db, "adsRewards"), where("userId", "==", uid), where("date", "==", today), limit(1));
   const qs = await getDocs(qy);
   if (!qs.empty) throw new Error("Ads reward already claimed today.");

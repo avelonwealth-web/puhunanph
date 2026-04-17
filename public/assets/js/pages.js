@@ -19,7 +19,7 @@ import {
   limit
 } from "./app.js";
 import { PRODUCTS, getProductById } from "./products.js";
-import { peso, maskMobile, getQuery, toast, notifySound, shareOrCopyReferral } from "./utils.js";
+import { peso, maskMobile, getQuery, toast, notifySound, shareOrCopyReferral, phDateKey } from "./utils.js";
 import { investProduct, loginMobile, registerMobile, addLog, adminQuickLogin, db } from "./app.js";
 import { doc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 import {
@@ -280,6 +280,7 @@ function setupDashboard() {
   const dashDepositBalance = document.getElementById("dashDepositBalance");
   const dashCommissionIncome = document.getElementById("dashCommissionIncome");
   const dashDailyIncome = document.getElementById("dashDailyIncome");
+  const dashDailyRewardsList = document.getElementById("dashDailyRewardsList");
   const cardsData = PRODUCTS
     .filter((p) => p.amount >= 100 && p.amount <= 10000)
     .slice(0, 15);
@@ -358,6 +359,18 @@ function setupDashboard() {
       if (dashDailyIncome) dashDailyIncome.textContent = peso(Number(user?.dailyProductIncome || 0));
       if (homeUserMobile) homeUserMobile.textContent = user?.mobile || "-";
     });
+    if (dashDailyRewardsList) {
+      streamUserTimeline("dailyRewards", u.uid, 30, (rows) => {
+        const key = phDateKey();
+        const todays = rows.filter((r) => String(r.date || "") === key);
+        const show = todays.length ? todays.slice(0, 10) : rows.slice(0, 6);
+        dashDailyRewardsList.innerHTML = show.length
+          ? `<ul style="list-style:none;padding:0;margin:4px 0 0;">${show
+            .map((r) => `<li>${peso(r.amount)} · ${r.date || "-"}</li>`)
+            .join("")}</ul>`
+          : "<p class=\"muted\" style=\"margin:4px 0 0;\">No daily product credits yet (job runs ~1:00 AM Manila).</p>";
+      });
+    }
     ads?.addEventListener("click", async () => {
       try {
         await claimAdsReward(u.uid);

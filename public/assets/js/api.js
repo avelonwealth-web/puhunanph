@@ -160,6 +160,18 @@ export async function apiReferralInviteLink(idToken) {
   return res.json();
 }
 
+export async function apiApplyInvestReferral(idToken, investmentId) {
+  const res = await fetchWithFallback(`/apply-invest-referral`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${idToken}`
+    },
+    body: JSON.stringify({ investmentId })
+  });
+  return res.json();
+}
+
 export async function apiInvest(idToken, payload) {
   const base = API_BASES[0];
   const res = await fetch(`${base}/invest`, {

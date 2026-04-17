@@ -51,6 +51,14 @@
       ]
     },
     {
+      "collectionGroup": "dailyRewards",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "userId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "adsRewards",
       "queryScope": "COLLECTION",
       "fields": [

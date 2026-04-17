@@ -214,6 +214,11 @@ function nowParts() {
   };
 }
 
+/** YYYY-MM-DD in Asia/Manila — matches client `phDateKey` for daily rewards / ads. */
+function phDateKey(d = new Date()) {
+  return d.toLocaleDateString("en-CA", { timeZone: "Asia/Manila" });
+}
+
 async function addLog(userId, type, message, meta = {}) {
   const { date, time } = nowParts();
   await db.collection("logs").add({
@@ -412,6 +417,7 @@ app.post("/api/invest", async (req, res) => {
       return res.status(400).json({ error: "This product is still active. Reinvest after expiry." });
     }
 
+    const invRef = db.collection("investments").doc();
     await db.runTransaction(async (tx) => {
       const userRef = db.collection("users").doc(uid);
       const userSnap = await tx.get(userRef);
@@ -428,7 +434,7 @@ app.post("/api/invest", async (req, res) => {
       const start = new Date();
       const end = new Date(start);
       end.setDate(start.getDate() + duration);
-      tx.set(db.collection("investments").doc(), {
+      tx.set(invRef, {
         userId: uid,
         product: name,
         amount,
@@ -437,19 +443,54 @@ app.post("/api/invest", async (req, res) => {
         status: "active",
         startDate: start.toISOString(),
         endDate: end.toISOString(),
+        referralCommissionApplied: false,
         createdAt: admin.firestore.FieldValue.serverTimestamp()
       });
     });
 
     await addLog(uid, "investment", `Invested in ${name}`, { amount });
-    await distributeReferralCommissionServer(uid, amount, "invest");
-    res.json({ ok: true });
+    await distributeReferralCommissionServer(uid, amount, "invest", invRef.id);
+    await invRef.update({ referralCommissionApplied: true });
+    res.json({ ok: true, investmentId: invRef.id });
   } catch (error) {
     const msg = String(error?.message || "Failed to invest.");
     if (/insufficient balance/i.test(msg) || /invalid product payload/i.test(msg) || /user not found/i.test(msg) || /still active/i.test(msg)) {
       return res.status(400).json({ error: msg });
     }
     res.status(500).json({ error: msg });
+  }
+});
+
+/** After client-side Firestore invest, credit uplines (rules block client from writing others' wallets). */
+app.post("/api/apply-invest-referral", async (req, res) => {
+  try {
+    const token = extractBearerToken(req);
+    if (!token) return res.status(401).json({ error: "Missing bearer token" });
+    const decoded = await admin.auth().verifyIdToken(token);
+    const uid = decoded.uid;
+    const investmentId = String(req.body?.investmentId || "").trim();
+    if (!investmentId) return res.status(400).json({ error: "investmentId required" });
+    const invRef = db.collection("investments").doc(investmentId);
+    const invSnap = await invRef.get();
+    if (!invSnap.exists) return res.status(404).json({ error: "Investment not found" });
+    const row = invSnap.data() || {};
+    if (row.userId !== uid) return res.status(403).json({ error: "Not your investment" });
+    if (row.referralCommissionApplied === true) {
+      return res.json({ ok: true, already: true });
+    }
+    const createdAt = row.createdAt?.toDate?.() || null;
+    if (!createdAt || Date.now() - createdAt.getTime() > 30 * 60 * 1000) {
+      return res.status(400).json({ error: "Investment too old or missing timestamp to apply referral." });
+    }
+    const amount = Number(row.amount || 0);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return res.status(400).json({ error: "Invalid investment amount" });
+    }
+    await distributeReferralCommissionServer(uid, amount, "invest", investmentId);
+    await invRef.update({ referralCommissionApplied: true });
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message || "apply-invest-referral failed" });
   }
 });
 
@@ -839,7 +880,8 @@ app.post("/api/run-daily-rewards", async (req, res) => {
     if (process.env.CRON_SECRET && req.headers["x-cron-secret"] !== process.env.CRON_SECRET) {
       return res.status(401).json({ error: "Unauthorized cron request" });
     }
-    const today = new Date().toISOString().slice(0, 10);
+    const dayKey = phDateKey();
+    const { time } = nowParts();
     const active = await db.collection("investments").where("status", "==", "active").get();
     let count = 0;
     for (const invDoc of active.docs) {
@@ -850,7 +892,7 @@ app.post("/api/run-daily-rewards", async (req, res) => {
       }
       const already = await db.collection("dailyRewards")
         .where("investmentId", "==", invDoc.id)
-        .where("date", "==", today)
+        .where("date", "==", dayKey)
         .limit(1)
         .get();
       if (!already.empty) continue;
@@ -866,14 +908,15 @@ app.post("/api/run-daily-rewards", async (req, res) => {
           userId: inv.userId,
           investmentId: invDoc.id,
           amount: reward,
-          ...nowParts(),
+          date: dayKey,
+          time,
           createdAt: admin.firestore.FieldValue.serverTimestamp()
         });
       });
       await addLog(inv.userId, "dailyReward", "Daily 10% reward credited", { amount: reward });
       count += 1;
     }
-    res.json({ ok: true, processed: count });
+    res.json({ ok: true, processed: count, dayKey });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

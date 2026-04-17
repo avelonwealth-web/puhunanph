@@ -33,11 +33,12 @@ services:
       - key: ADMIN_MOBILE
         value: 09152444480
 
+  # 17:00 UTC = 01:00 next calendar day in Asia/Manila (UTC+8)
   - type: cron
     name: puhunanph-daily-rewards
     runtime: node
     rootDir: backend
-    schedule: "0 1 * * *"
+    schedule: "0 17 * * *"
     buildCommand: npm install
     startCommand: >
       node -e "const base=(process.env.BACKEND_BASE_URL||'').replace(/\/$/,'');if(!base){console.error('BACKEND_BASE_URL is required');process.exit(1)}fetch(base+'/api/run-daily-rewards',{method:'POST',headers:{'x-cron-secret':process.env.CRON_SECRET}}).then(r=>r.text()).then(t=>{console.log(t);process.exit(0)}).catch(e=>{console.error(e);process.exit(1)})"

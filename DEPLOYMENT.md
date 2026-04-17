@@ -28,8 +28,10 @@
 - Test deposit flow end-to-end in sandbox/live as needed.
 
 ## 5) Daily Rewards Scheduler
-- In Render Cron Jobs, call `POST /api/run-daily-rewards` at 1:00 AM.
+- Call `POST /api/run-daily-rewards` once per calendar day in **Asia/Manila** (de-dupe uses `phDateKey` / `YYYY-MM-DD` Manila).
+- On Render (UTC cron), `0 17 * * *` = **01:00 Manila** next calendar day; see `render.yaml` example.
 - Add header `x-cron-secret` with `CRON_SECRET` value.
+- After changing `firestore.indexes.json`, run `firebase deploy --only firestore:indexes` (dashboard needs `dailyRewards` userId + `createdAt` index for live list).
 - Verify daily reward logs appear in `logs` and `dailyRewards` collections.
 
 ## 6) Production Hardening
