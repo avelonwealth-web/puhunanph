@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin - PuhunanPH</title>
+  <link rel="stylesheet" href="assets/css/styles.css" />
+</head>
+<body data-page="admin">
+  <main class="container grid">
+    <h1 class="page-title">Admin Panel (Full Access)</h1>
+
+    <div class="card">
+      <h3>Users</h3>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Mobile</th><th>Balance</th><th>Deposit</th><th>Withdraw</th><th>Joined</th><th>Referred By</th><th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="adminUsers"></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h3>Withdraw Requests</h3>
+      <table class="table">
+        <thead><tr><th>Mobile</th><th>Account #</th><th>Amount</th><th>Status</th><th>Action</th></tr></thead>
+        <tbody id="adminWithdraws"></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h3>Add Product</h3>
+      <form id="adminAddProductForm" class="grid grid-2">
+        <input id="newProductName" class="input" placeholder="Product Name" required />
+        <input id="newProductIcon" class="input" placeholder="Icon (emoji)" />
+        <input id="newProductAmount" class="input" type="number" placeholder="Amount" required />
+        <input id="newProductRate" class="input" type="number" placeholder="Daily Rate %" value="10" required />
+        <input id="newProductDuration" class="input" type="number" placeholder="Duration days" value="100" required />
+        <button class="btn btn-primary" type="submit">Add Product</button>
+      </form>
+    </div>
+
+    <div class="card">
+      <h3>System Settings</h3>
+      <form id="adminSettingsForm" class="grid grid-2">
+        <input id="settingKey" class="input" placeholder="Setting Key" required />
+        <input id="settingValue" class="input" placeholder="Setting Value" required />
+        <button class="btn btn-primary" type="submit">Save Setting</button>
+      </form>
+    </div>
+
+    <div class="card">
+      <h3>Investments</h3>
+      <table class="table"><thead><tr><th>User</th><th>Product</th><th>Amount</th><th>Duration</th><th>Status</th></tr></thead><tbody id="adminInvestments"></tbody></table>
+    </div>
+
+    <div class="card">
+      <h3>Daily Rewards</h3>
+      <table class="table"><thead><tr><th>User</th><th>Investment</th><th>Amount</th><th>Date & Time</th></tr></thead><tbody id="adminDailyRewards"></tbody></table>
+    </div>
+
+    <div class="card">
+      <h3>Logs</h3>
+      <table class="table"><thead><tr><th>User</th><th>Type</th><th>Message</th><th>Date & Time</th></tr></thead><tbody id="adminLogs"></tbody></table>
+    </div>
+
+    <div class="card grid">
+      <h3>Admin Referral Identity</h3>
+      <p class="muted">Referral Code (8 chars): <strong id="adminReferralCode">-</strong></p>
+      <button id="copyAdminCode" class="btn btn-outline" type="button">Copy Admin Code</button>
+      <p class="muted">Referral Link: <span id="adminReferralLink">-</span></p>
+      <button id="copyAdminLink" class="btn btn-outline" type="button">Copy Admin Link</button>
+    </div>
+  </main>
+  <button id="supportBtn" class="support-btn">TG</button>
+  <script type="module" src="assets/js/pages.js"></script>
+</body>
+</html>

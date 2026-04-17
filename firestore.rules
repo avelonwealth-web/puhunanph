@@ -1,0 +1,108 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isAuthed() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthed() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
+    }
+
+    function isOwnerByField(fieldUserId) {
+      return isAuthed() && fieldUserId == request.auth.uid;
+    }
+
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId)
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.mobile is string;
+      allow update: if isOwner(userId) || isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /referralCodes/{codeId} {
+      // Needed so registration can validate invite code before auth.
+      allow read: if true;
+      allow create: if isAuthed()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.code is string
+        && request.resource.data.mobile is string;
+      allow update, delete: if isAdmin();
+    }
+
+    match /investments/{docId} {
+      // Realtime stream support for owner + admin
+      allow read: if isAuthed() && (isOwnerByField(resource.data.userId) || isAdmin());
+      allow create: if isAuthed()
+        && isOwnerByField(request.resource.data.userId)
+        && request.resource.data.amount is number
+        && request.resource.data.status is string;
+      allow update, delete: if isAdmin();
+    }
+
+    match /deposits/{docId} {
+      allow read: if isAuthed() && (isOwnerByField(resource.data.userId) || isAdmin());
+      allow create: if isAuthed()
+        && isOwnerByField(request.resource.data.userId)
+        && request.resource.data.amount is number;
+      allow update, delete: if isAdmin();
+    }
+
+    match /withdraws/{docId} {
+      allow read: if isAuthed() && (isOwnerByField(resource.data.userId) || isAdmin());
+      allow create: if isAuthed()
+        && isOwnerByField(request.resource.data.userId)
+        && request.resource.data.amount is number
+        && request.resource.data.mobileNumber is string
+        && request.resource.data.accountNumber is string;
+      allow update, delete: if isAdmin();
+    }
+
+    match /dailyRewards/{docId} {
+      allow read: if isAuthed() && (isOwnerByField(resource.data.userId) || isAdmin());
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /adsRewards/{docId} {
+      allow read: if isAuthed() && (isOwnerByField(resource.data.userId) || isAdmin());
+      allow create: if isAuthed()
+        && isOwnerByField(request.resource.data.userId)
+        && request.resource.data.amount is number;
+      allow update, delete: if isAdmin();
+    }
+
+    match /referralCommissions/{docId} {
+      allow read: if isAuthed() && (isOwnerByField(resource.data.userId) || isAdmin());
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /logs/{docId} {
+      allow read: if isAuthed() && (isOwnerByField(resource.data.userId) || isAdmin());
+      allow create: if isAuthed()
+        && isOwnerByField(request.resource.data.userId)
+        && request.resource.data.type is string
+        && request.resource.data.message is string;
+      allow update, delete: if isAdmin();
+    }
+
+    match /products/{docId} {
+      allow read: if isAuthed();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /settings/{docId} {
+      allow read: if isAuthed();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Withdraw - PuhunanPH</title>
+  <link rel="stylesheet" href="assets/css/styles.css" />
+</head>
+<body data-page="withdraw">
+  <main class="container grid">
+    <h1 class="page-title">Withdraw</h1>
+    <form id="withdrawForm" class="card grid">
+      <input id="mobileNumber" class="input" placeholder="Mobile Number" required />
+      <input id="accountNumber" class="input" placeholder="Account Number" required />
+      <input id="amount" class="input" type="number" min="100" placeholder="Amount (min 100)" required />
+      <button class="btn btn-primary" type="submit">Submit Request</button>
+    </form>
+  </main>
+  <button id="supportBtn" class="support-btn">TG</button>
+  <nav id="bottomNav" class="bottom-nav"></nav>
+  <script type="module" src="assets/js/pages.js"></script>
+</body>
+</html>

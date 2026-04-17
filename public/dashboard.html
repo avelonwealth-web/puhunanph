@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard - PuhunanPH</title>
+  <link rel="stylesheet" href="assets/css/styles.css" />
+</head>
+<body data-page="dashboard">
+  <main class="container grid">
+    <div class="card ads-banner" style="display:flex;justify-content:space-between;align-items:center;">
+      <div>
+        <p class="muted">Daily Wallet Balance</p>
+        <p id="walletBalance" class="balance">PHP 0.00</p>
+      </div>
+      <button id="adsRewardBtn" class="btn btn-primary">Watch Ads +PHP10</button>
+    </div>
+    <h1 class="page-title">Investment Products</h1>
+    <section id="productCards" class="grid grid-3"></section>
+  </main>
+  <button id="supportBtn" class="support-btn">TG</button>
+  <nav id="bottomNav" class="bottom-nav"></nav>
+  <script type="module" src="assets/js/pages.js"></script>
+</body>
+</html>
