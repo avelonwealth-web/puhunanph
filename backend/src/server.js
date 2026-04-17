@@ -796,11 +796,13 @@ app.post("/api/run-daily-rewards", async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 10000;
+const PORT = process.env.PORT || 3000;
 const server = app.listen(PORT, () => {
   console.log(`PuhunanPH backend listening on :${PORT}`);
 });
 
+// Render (and most PaaS) send SIGTERM when replacing the instance: new deploy, scaling,
+// or free-tier spin-down/wake. You cannot opt out; exiting cleanly avoids SIGKILL mid-request.
 function handleShutdown(signal) {
   console.log(`Received ${signal}. Shutting down gracefully...`);
   server.close(() => {

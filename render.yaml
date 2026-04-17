@@ -1,4 +1,6 @@
 services:
+  # Web: "free" spins down after idle (~15 min) → cold starts; every deploy sends SIGTERM to the old instance (normal).
+  # For always-on (no idle spin-down), upgrade this service in the Render dashboard to a paid instance type, or set e.g. plan: starter here (billable).
   - type: web
     name: puhunanph-backend
     runtime: node
