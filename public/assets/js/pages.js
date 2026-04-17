@@ -293,49 +293,66 @@ function setupProfilePage() {
 function setupTeamPage() {
   const container = document.getElementById("teamWrap");
   if (!container) return;
+
+  const levelRates = { 1: 0.15, 2: 0.05, 3: 0.01 };
+
+  function renderLevel(lv, list) {
+    const members = new Set(list.map((r) => r.fromUserId).filter(Boolean)).size;
+    const totalCommission = list.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+
+    const membersEl = document.getElementById(`teamL${lv}Members`);
+    const commissionEl = document.getElementById(`teamL${lv}Commission`);
+    const panel = document.getElementById(`teamDownlines${lv}`);
+    if (membersEl) membersEl.textContent = `Total members: ${members}`;
+    if (commissionEl) commissionEl.textContent = `Total commission: ${peso(totalCommission)}`;
+
+    if (!panel) return;
+    const wasOpen = !panel.hasAttribute("hidden");
+    const downlinesHtml = list.map((r) => {
+      const pct = Number(r.percent || levelRates[lv] || 0.01);
+      const totalDeposit = pct > 0 ? (Number(r.amount || 0) / pct) : Number(r.amount || 0);
+      const d = r.createdAt?.seconds
+        ? new Date(r.createdAt.seconds * 1000).toLocaleString("en-PH")
+        : `${r.date || "-"} ${r.time || ""}`.trim();
+      return `<p class="muted">${maskMobile(r.fromUserMobile || "09120000000")}/${d || "-"}/${peso(totalDeposit)}</p>`;
+    }).join("") || "<p class=\"muted\">No downlines yet.</p>";
+    panel.innerHTML = downlinesHtml;
+    if (wasOpen) {
+      const cardEl = container.querySelector(`[data-level-card="${lv}"]`);
+      panel.removeAttribute("hidden");
+      cardEl?.classList.add("open");
+      cardEl?.querySelector(".team-level-head")?.setAttribute("aria-expanded", "true");
+    }
+  }
+
+  if (!container.dataset.teamDelegated) {
+    container.dataset.teamDelegated = "1";
+    container.addEventListener("click", (e) => {
+      const card = e.target.closest(".team-level-card");
+      if (!card || !container.contains(card)) return;
+      const lv = card.getAttribute("data-level-card");
+      if (!lv) return;
+      const panel = document.getElementById(`teamDownlines${lv}`);
+      const headBtn = card.querySelector(`[data-level-toggle="${lv}"]`);
+      if (!panel) return;
+
+      const isHidden = panel.hasAttribute("hidden");
+      container.querySelectorAll(".team-downlines").forEach((node) => node.setAttribute("hidden", ""));
+      container.querySelectorAll(".team-level-card").forEach((node) => node.classList.remove("open"));
+      container.querySelectorAll(".team-level-head").forEach((btn) => btn.setAttribute("aria-expanded", "false"));
+
+      if (isHidden) {
+        panel.removeAttribute("hidden");
+        card.classList.add("open");
+        headBtn?.setAttribute("aria-expanded", "true");
+      }
+    });
+  }
+
   requireAuth((u) => {
     streamCollection("referralCommissions", [where("userId", "==", u.uid), orderBy("createdAt", "desc")], (rows) => {
-      const levelRows = [1, 2, 3].map((lv) => rows.filter((r) => r.level === lv));
-      const levelRates = { 1: 0.15, 2: 0.05, 3: 0.01 };
-      container.innerHTML = levelRows.map((list, idx) => {
-        const lv = idx + 1;
-        const rate = lv === 1 ? "15%" : lv === 2 ? "5%" : "1%";
-        const total = list.reduce((s, r) => s + (r.amount || 0), 0);
-        const members = new Set(list.map((r) => r.fromUserId).filter(Boolean)).size;
-        const downlines = list.map((r) => {
-          const pct = Number(r.percent || levelRates[lv] || 0.01);
-          const totalDeposit = pct > 0 ? (Number(r.amount || 0) / pct) : Number(r.amount || 0);
-          const d = r.createdAt?.seconds
-            ? new Date(r.createdAt.seconds * 1000).toLocaleString("en-PH")
-            : `${r.date || "-"} ${r.time || ""}`.trim();
-          return `<p class="muted">${maskMobile(r.fromUserMobile || "09XXXXXXXXX")}/${d || "-"}/${peso(totalDeposit)}</p>`;
-        }).join("") || "<p class='muted'>No downlines yet.</p>";
-        return `
-          <article class="card team-level-card" data-level-card="${lv}">
-            <button class="team-level-head" type="button" data-level-toggle="${lv}">
-              <span><strong>Level ${lv}</strong></span>
-              <span class="badge">${rate}</span>
-            </button>
-            <p class="muted">Total members: ${members}</p>
-            <p class="muted">Total commission: ${peso(total)}</p>
-            <div class="team-downlines" id="teamDownlines${lv}" hidden>${downlines}</div>
-          </article>
-        `;
-      }).join("");
-
-      container.querySelectorAll("[data-level-toggle]").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          const level = btn.dataset.levelToggle;
-          const panel = document.getElementById(`teamDownlines${level}`);
-          if (!panel) return;
-          const isHidden = panel.hasAttribute("hidden");
-          container.querySelectorAll(".team-downlines").forEach((node) => node.setAttribute("hidden", ""));
-          container.querySelectorAll(".team-level-card").forEach((node) => node.classList.remove("open"));
-          if (isHidden) {
-            panel.removeAttribute("hidden");
-            btn.closest(".team-level-card")?.classList.add("open");
-          }
-        });
+      [1, 2, 3].forEach((lv) => {
+        renderLevel(lv, rows.filter((r) => r.level === lv));
       });
     });
   });

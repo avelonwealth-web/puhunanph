@@ -1,1 +1,53 @@
-<!doctype html><html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>Team - PuhunanPH</title><link rel="stylesheet" href="assets/css/styles.css" /></head><body data-page="team"><main class="container"><h1 class="page-title">Referral Team</h1><section id="teamWrap" class="grid"></section></main><button id="supportBtn" class="support-btn">TG</button><nav id="bottomNav" class="bottom-nav"></nav><script type="module" src="assets/js/pages.js"></script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Team - PuhunanPH</title>
+  <link rel="stylesheet" href="assets/css/styles.css" />
+</head>
+<body data-page="team">
+  <main class="container grid">
+    <h1 class="page-title">Team</h1>
+    <p class="muted">
+      Commission is based on total deposit of each downline:
+      Level 1 = 15%, Level 2 = 5%, Level 3 = 1%.
+    </p>
+
+    <section id="teamWrap" class="grid" aria-label="Referral levels">
+      <article class="card team-level-card" data-level-card="1">
+        <button class="team-level-head" type="button" data-level-toggle="1" aria-expanded="false" aria-controls="teamDownlines1">
+          <span><strong>Level 1</strong></span>
+          <span class="badge">15%</span>
+        </button>
+        <p class="muted" id="teamL1Members">Total members: —</p>
+        <p class="muted" id="teamL1Commission">Total commission: —</p>
+        <div class="team-downlines" id="teamDownlines1" hidden aria-live="polite"></div>
+      </article>
+
+      <article class="card team-level-card" data-level-card="2">
+        <button class="team-level-head" type="button" data-level-toggle="2" aria-expanded="false" aria-controls="teamDownlines2">
+          <span><strong>Level 2</strong></span>
+          <span class="badge">5%</span>
+        </button>
+        <p class="muted" id="teamL2Members">Total members: —</p>
+        <p class="muted" id="teamL2Commission">Total commission: —</p>
+        <div class="team-downlines" id="teamDownlines2" hidden aria-live="polite"></div>
+      </article>
+
+      <article class="card team-level-card" data-level-card="3">
+        <button class="team-level-head" type="button" data-level-toggle="3" aria-expanded="false" aria-controls="teamDownlines3">
+          <span><strong>Level 3</strong></span>
+          <span class="badge">1%</span>
+        </button>
+        <p class="muted" id="teamL3Members">Total members: —</p>
+        <p class="muted" id="teamL3Commission">Total commission: —</p>
+        <div class="team-downlines" id="teamDownlines3" hidden aria-live="polite"></div>
+      </article>
+    </section>
+  </main>
+  <button id="supportBtn" class="support-btn" type="button" aria-label="Telegram support">TG</button>
+  <nav id="bottomNav" class="bottom-nav"></nav>
+  <script type="module" src="assets/js/pages.js"></script>
+</body>
+</html>
