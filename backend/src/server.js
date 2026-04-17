@@ -75,6 +75,29 @@ try {
   console.error("Firebase Admin initialization failed:", error.message);
 }
 const ADMIN_SECRET = process.env.ADMIN_ACTION_SECRET || "";
+const REF_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+function makeReferralCode(length = 8) {
+  let out = "";
+  for (let i = 0; i < length; i += 1) out += REF_CHARS[Math.floor(Math.random() * REF_CHARS.length)];
+  return out;
+}
+
+async function generateUniqueReferralCodeAdmin(length = 8) {
+  for (let i = 0; i < 40; i += 1) {
+    const code = makeReferralCode(length);
+    const snap = await db.collection("referralCodes").doc(code).get();
+    if (!snap.exists) return code;
+  }
+  throw new Error("Failed to generate unique referral code");
+}
+
+function extractBearerToken(req) {
+  const authHeader = req.headers.authorization || "";
+  const parts = authHeader.split(" ");
+  if (parts.length === 2 && parts[0] === "Bearer") return parts[1];
+  return null;
+}
 
 function requireAdminSecret(req, res) {
   if (!ADMIN_SECRET) return true;
@@ -180,6 +203,7 @@ app.post("/api/paymongo-webhook", async (req, res) => {
       const user = userSnap.data();
       tx.update(userRef, {
         balance: (user.balance || 0) + amount,
+        walletBalance: (user.walletBalance || 0) + amount,
         depositBalance: (user.depositBalance || 0) + amount
       });
       tx.update(depDoc.ref, { status: "paid", amount, ...nowParts() });
@@ -194,8 +218,8 @@ app.post("/api/paymongo-webhook", async (req, res) => {
 
 app.post("/api/withdraw-request", async (req, res) => {
   try {
-    const { uid, mobileNumber, accountNumber, amount } = req.body;
-    if (!uid || !mobileNumber || !accountNumber || !amount) return res.status(400).json({ error: "Missing fields" });
+    const { uid, mobileNumber, accountName, accountNumber, amount } = req.body;
+    if (!uid || !mobileNumber || !accountName || !accountNumber || !amount) return res.status(400).json({ error: "Missing fields" });
     if (Number(amount) < 100) return res.status(400).json({ error: "Minimum withdraw is 100" });
     const hour = new Date().getHours();
     if (hour < 9 || hour >= 17) return res.status(400).json({ error: "Withdraw time is 9AM to 5PM only" });
@@ -210,6 +234,7 @@ app.post("/api/withdraw-request", async (req, res) => {
       tx.set(db.collection("withdraws").doc(), {
         userId: uid,
         mobileNumber,
+        accountName,
         accountNumber,
         amount: Number(amount),
         status: "pending",
@@ -252,6 +277,58 @@ app.post("/api/admin/delete-user/:uid", async (req, res) => {
     await userRef.delete();
     await admin.auth().deleteUser(uid).catch(() => null);
     res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/firebase/complete-registration", async (req, res) => {
+  try {
+    const token = extractBearerToken(req);
+    if (!token) return res.status(401).json({ error: "Missing bearer token" });
+    const decoded = await admin.auth().verifyIdToken(token);
+    const uid = decoded.uid;
+    const { mobile, referralCode } = req.body || {};
+    const refCode = String(referralCode || "").trim().toUpperCase();
+    if (!mobile || refCode.length !== 8) return res.status(400).json({ error: "Invalid registration payload" });
+
+    const inviterSnap = await db.collection("referralCodes").doc(refCode).get();
+    if (!inviterSnap.exists) return res.status(400).json({ error: "Invalid invite/referral code." });
+    const inviterUid = inviterSnap.data().uid || null;
+
+    const userRef = db.collection("users").doc(uid);
+    const userSnap = await userRef.get();
+    const join = nowParts();
+    const myCode = await generateUniqueReferralCodeAdmin(8);
+    const baseUser = userSnap.exists ? userSnap.data() : {};
+    await userRef.set({
+      uid,
+      mobile,
+      balance: baseUser.balance || 0,
+      walletBalance: baseUser.walletBalance || 0,
+      depositBalance: baseUser.depositBalance || 0,
+      withdrawBalance: baseUser.withdrawBalance || 0,
+      referralCode: myCode,
+      referredBy: inviterUid,
+      level1: baseUser.level1 || 0,
+      level2: baseUser.level2 || 0,
+      level3: baseUser.level3 || 0,
+      joinDate: baseUser.joinDate || join.date,
+      joinTime: baseUser.joinTime || join.time,
+      isAdmin: baseUser.isAdmin === true,
+      isBanned: baseUser.isBanned === true
+    }, { merge: true });
+
+    await db.collection("referralCodes").doc(myCode).set({
+      code: myCode,
+      uid,
+      mobile,
+      isAdmin: false,
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+
+    await addLog(uid, "register", `Registered with inviter code ${refCode}`);
+    res.json({ ok: true, uid, referralCode: myCode });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

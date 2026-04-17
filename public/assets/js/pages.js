@@ -11,8 +11,6 @@ import {
   orderBy,
   adminAdjustBalance,
   adminSetBan,
-  createManualProduct,
-  upsertSystemSetting,
   ensureUserReferralCode,
   saveDraft,
   streamDraft,
@@ -26,6 +24,11 @@ import { createPaymongoSource, requestWithdrawal, apiApproveWithdraw, apiDeleteU
 function setSupportButton() {
   const btn = document.getElementById("supportBtn");
   if (!btn) return;
+  btn.innerHTML = `
+    <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
+      <path fill="currentColor" d="M9.04 15.31 8.9 19.1c.42 0 .6-.18.83-.4l1.99-1.91 4.12 3.02c.76.42 1.29.2 1.49-.7l2.7-12.67.01-.01c.24-1.1-.4-1.53-1.14-1.26L2.9 11.24c-1.08.42-1.06 1.03-.18 1.3l4.08 1.27 9.48-5.93c.44-.29.84-.13.5.16z"/>
+    </svg>
+  `;
   btn.addEventListener("click", () => window.open("https://t.me/", "_blank"));
 }
 
@@ -48,12 +51,19 @@ function injectBrandHeader(page) {
 function renderBottomNav(activePath) {
   const nav = document.getElementById("bottomNav");
   if (!nav) return;
+  const items = [
+    { href: "dashboard.html", key: "HOME", icon: "🏠" },
+    { href: "product.html?product=rice-01", key: "PRODUCT", icon: "🌾" },
+    { href: "team.html", key: "TEAM", icon: "👥" },
+    { href: "profile.html", key: "PROFILE", icon: "🧑" }
+  ];
   nav.innerHTML = `
-    <a class="${activePath === "dashboard.html" ? "active" : ""}" href="dashboard.html">Dashboard</a>
-    <a class="${activePath === "team.html" ? "active" : ""}" href="team.html">Team</a>
-    <a class="${activePath === "deposit.html" ? "active" : ""}" href="deposit.html">Deposit</a>
-    <a class="${activePath === "profile.html" ? "active" : ""}" href="profile.html">Profile</a>
-    <a class="${activePath === "logs.html" ? "active" : ""}" href="logs.html">Logs</a>
+    ${items.map((item) => `
+      <a class="${activePath === item.href.split("?")[0] ? "active" : ""} nav-item" href="${item.href}">
+        <span class="nav-icon" aria-hidden="true">${item.icon}</span>
+        <span>${item.key}</span>
+      </a>
+    `).join("")}
   `;
 }
 
@@ -167,6 +177,7 @@ function autosaveFormWithDraft({ uid, key, fields }) {
 function setupDashboard() {
   const cards = document.getElementById("productCards");
   if (!cards) return;
+  const homeUserMobile = document.getElementById("homeUserMobile");
   const cardsData = PRODUCTS
     .filter((p) => p.amount >= 100 && p.amount <= 10000)
     .slice(0, 15);
@@ -195,6 +206,7 @@ function setupDashboard() {
   requireAuth((u) => {
     streamUser(u.uid, (user) => {
       document.getElementById("walletBalance").textContent = peso(user?.balance || 0);
+      if (homeUserMobile) homeUserMobile.textContent = user?.mobile || "-";
     });
     ads?.addEventListener("click", async () => {
       try {
@@ -232,6 +244,11 @@ function setupProductPage() {
         toast("Investment successful.");
         window.location.href = "dashboard.html";
       } catch (error) {
+        if ((error?.message || "").toLowerCase().includes("insufficient balance")) {
+          toast("Insufficient balance. Redirecting to deposit page.");
+          setTimeout(() => { window.location.href = "deposit.html"; }, 500);
+          return;
+        }
         toast(error.message);
       }
     });
@@ -251,11 +268,19 @@ function setupProfilePage() {
           <p class="muted">Balance: ${peso(user?.balance || 0)}</p>
           <p class="muted">Deposit Balance: ${peso(user?.depositBalance || 0)}</p>
           <p class="muted">Withdraw Balance: ${peso(user?.withdrawBalance || 0)}</p>
+
+          <div class="grid grid-2">
+            <a class="card" href="deposit.html">Deposit</a>
+            <a class="card" href="withdraw.html">Withdraw</a>
+            <a class="card" href="deposit-history.html">Transactions</a>
+            <a class="card" href="logs.html">Logs</a>
+          </div>
+
+          <button class="btn btn-danger" id="logoutBtn">Logout</button>
           <p class="muted">Referral Link: ${link}</p>
           <button class="btn btn-outline" id="copyRefLink">Copy Referral Link</button>
           <p class="muted">Referral Code: ${user?.referralCode || "-"}</p>
           <button class="btn btn-outline" id="copyRefCode">Copy Referral Code</button>
-          <button class="btn btn-danger" id="logoutBtn">Logout</button>
         </div>
       `;
       document.getElementById("copyRefLink").onclick = async () => navigator.clipboard.writeText(link);
@@ -271,16 +296,27 @@ function setupTeamPage() {
   requireAuth((u) => {
     streamCollection("referralCommissions", [where("userId", "==", u.uid), orderBy("createdAt", "desc")], (rows) => {
       const levelRows = [1, 2, 3].map((lv) => rows.filter((r) => r.level === lv));
+      const levelRates = { 1: 0.15, 2: 0.05, 3: 0.01 };
       container.innerHTML = levelRows.map((list, idx) => {
         const lv = idx + 1;
-        const rate = lv === 1 ? "15%" : lv === 2 ? "5%" : "2%";
+        const rate = lv === 1 ? "15%" : lv === 2 ? "5%" : "1%";
         const total = list.reduce((s, r) => s + (r.amount || 0), 0);
+        const members = new Set(list.map((r) => r.fromUserId).filter(Boolean)).size;
         return `
           <details class="card">
             <summary><strong>Level ${lv}</strong> - ${rate}</summary>
-            <p class="muted">Total members: ${list.length}</p>
+            <p class="muted">Total members: ${members}</p>
             <p class="muted">Total commission: ${peso(total)}</p>
-            <div>${list.map((r) => `<p class="muted">${maskMobile(r.fromUserMobile || "09XXXXXXXXX")} / ${r.amount}</p>`).join("") || "<p class='muted'>No downlines yet.</p>"}</div>
+            <div>${
+              list.map((r) => {
+                const pct = Number(r.percent || levelRates[lv] || 0.01);
+                const totalDeposit = pct > 0 ? (Number(r.amount || 0) / pct) : Number(r.amount || 0);
+                const d = r.createdAt?.seconds
+                  ? new Date(r.createdAt.seconds * 1000).toLocaleString("en-PH")
+                  : `${r.date || "-"} ${r.time || ""}`.trim();
+                return `<p class="muted">${maskMobile(r.fromUserMobile || "09XXXXXXXXX")} / ${d || "-"} / ${peso(totalDeposit)}</p>`;
+              }).join("") || "<p class='muted'>No downlines yet.</p>"
+            }</div>
           </details>
         `;
       }).join("");
@@ -315,18 +351,30 @@ function setupWithdrawPage() {
     autosaveFormWithDraft({
       uid: u.uid,
       key: "withdraw_form",
-      fields: ["mobileNumber", "accountNumber", "amount"]
+      fields: ["accountName", "accountNumber", "amount"]
     });
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
-      const mobileNumber = document.getElementById("mobileNumber").value.trim();
+      const accountName = document.getElementById("accountName").value.trim();
       const accountNumber = document.getElementById("accountNumber").value.trim();
       const amount = Number(document.getElementById("amount").value);
       const hour = new Date().getHours();
       if (hour < 9 || hour >= 17) return toast("Withdraw time is 9AM to 5PM.");
       if (amount < 100) return toast("Minimum withdraw is PHP 100.");
       try {
-        await requestWithdrawal({ uid: u.uid, mobileNumber, accountNumber, amount });
+        const me = await new Promise((resolve) => {
+          const unsub = streamUser(u.uid, (user) => {
+            unsub();
+            resolve(user || {});
+          });
+        });
+        await requestWithdrawal({
+          uid: u.uid,
+          mobileNumber: me.mobile || "",
+          accountName,
+          accountNumber,
+          amount
+        });
         await addLog(u.uid, "withdraw", "Withdraw request submitted", { amount });
         await clearDraft(u.uid, "withdraw_form");
         toast("Withdraw request submitted.");
@@ -360,8 +408,6 @@ function setupLogsPage() {
 function setupAdminPage() {
   const usersNode = document.getElementById("adminUsers");
   if (!usersNode) return;
-  let adminUid = null;
-  let autosaveReady = false;
   const codeNode = document.getElementById("adminReferralCode");
   const linkNode = document.getElementById("adminReferralLink");
   const copyCodeBtn = document.getElementById("copyAdminCode");
@@ -372,6 +418,8 @@ function setupAdminPage() {
   const logsNode = document.getElementById("adminLogs");
 
   function renderAdminTables(rows) {
+    const usersByUid = {};
+    (rows.users || []).forEach((u) => { usersByUid[u.uid] = u; });
     usersNode.innerHTML = (rows.users || []).map((r) => `
       <tr>
         <td>${r.mobile || "-"}</td>
@@ -379,7 +427,7 @@ function setupAdminPage() {
         <td>${peso(r.depositBalance || 0)}</td>
         <td>${peso(r.withdrawBalance || 0)}</td>
         <td>${(r.joinDate || "-")} ${(r.joinTime || "")}</td>
-        <td>${r.referredBy || "-"}</td>
+        <td>${usersByUid[r.referredBy]?.mobile || "-"}</td>
         <td>
           <button class="btn btn-outline" data-adjust="${r.uid}">Adjust</button>
           <button class="btn btn-outline" data-ban="${r.uid}" data-state="${r.isBanned ? "1" : "0"}">${r.isBanned ? "Unban" : "Ban"}</button>
@@ -390,8 +438,8 @@ function setupAdminPage() {
 
     if (withdrawNode) {
       withdrawNode.innerHTML = (rows.withdraws || []).map((r) =>
-        `<tr><td>${r.mobileNumber || "-"}</td><td>${r.accountNumber || "-"}</td><td>${peso(r.amount || 0)}</td><td>${r.status || "-"}</td><td>${r.status === "pending" ? `<button class="btn btn-primary" data-approve="${r.id}">Approve</button>` : ""}</td></tr>`
-      ).join("") || `<tr><td colspan="5">No withdraw requests.</td></tr>`;
+        `<tr><td>${r.mobileNumber || "-"}</td><td>${r.accountName || "-"}</td><td>${r.accountNumber || "-"}</td><td>${peso(r.amount || 0)}</td><td>${r.status || "-"}</td><td>${r.status === "pending" ? `<button class="btn btn-primary" data-approve="${r.id}">Approve</button>` : ""}</td></tr>`
+      ).join("") || `<tr><td colspan="6">No withdraw requests.</td></tr>`;
     }
     if (invNode) {
       invNode.innerHTML = (rows.investments || []).map((r) =>
@@ -400,7 +448,7 @@ function setupAdminPage() {
     }
     if (logsNode) {
       logsNode.innerHTML = (rows.logs || []).slice(0, 200).map((r) =>
-        `<tr><td>${r.userId}</td><td>${r.type}</td><td>${r.message}</td><td>${r.date || "-"} ${r.time || ""}</td></tr>`
+        `<tr><td>${usersByUid[r.userId]?.mobile || "-"}</td><td>${r.type}</td><td>${r.message}</td><td>${r.date || "-"} ${r.time || ""}</td></tr>`
       ).join("") || `<tr><td colspan="4">No logs.</td></tr>`;
     }
     if (dailyNode) {
@@ -452,21 +500,7 @@ function setupAdminPage() {
   }
 
   requireAuth((u) => {
-    adminUid = u.uid;
     streamUser(u.uid, (me) => {
-      if (!autosaveReady) {
-        autosaveFormWithDraft({
-          uid: u.uid,
-          key: "admin_product_form",
-          fields: ["newProductName", "newProductIcon", "newProductAmount", "newProductRate", "newProductDuration"]
-        });
-        autosaveFormWithDraft({
-          uid: u.uid,
-          key: "admin_settings_form",
-          fields: ["settingKey", "settingValue"]
-        });
-        autosaveReady = true;
-      }
       (async () => {
         const fixedCode = await ensureUserReferralCode(u.uid, 8);
         setAdminReferralUI(fixedCode || me?.referralCode || "");
@@ -533,43 +567,6 @@ function setupAdminPage() {
       await apiApproveWithdraw(wid);
       notifySound();
       toast("Withdraw approved.");
-    } catch (error) {
-      toast(error.message);
-    }
-  });
-
-  const addProductForm = document.getElementById("adminAddProductForm");
-  addProductForm?.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const product = {
-      name: document.getElementById("newProductName").value.trim(),
-      amount: Number(document.getElementById("newProductAmount").value),
-      rate: Number(document.getElementById("newProductRate").value) / 100,
-      duration: Number(document.getElementById("newProductDuration").value),
-      icon: document.getElementById("newProductIcon").value.trim() || "🌱"
-    };
-    try {
-      await createManualProduct(product);
-      notifySound();
-      toast("Product added.");
-      addProductForm.reset();
-      if (adminUid) await clearDraft(adminUid, "admin_product_form");
-    } catch (error) {
-      toast(error.message);
-    }
-  });
-
-  const settingsForm = document.getElementById("adminSettingsForm");
-  settingsForm?.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const key = document.getElementById("settingKey").value.trim();
-    const value = document.getElementById("settingValue").value.trim();
-    if (!key) return toast("Setting key is required.");
-    try {
-      await upsertSystemSetting(key, value);
-      notifySound();
-      toast("Setting saved.");
-      if (adminUid) await clearDraft(adminUid, "admin_settings_form");
     } catch (error) {
       toast(error.message);
     }

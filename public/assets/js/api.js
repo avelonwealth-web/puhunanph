@@ -73,3 +73,28 @@ export async function apiGetAdminFallbackData(limit = 200) {
   if (!res.ok) throw new Error("Failed to load admin fallback data.");
   return res.json();
 }
+
+export async function apiCompleteRegistrationProfile(idToken, payload) {
+  let lastError = null;
+  for (const base of API_BASES) {
+    try {
+      const res = await fetch(`${base}/firebase/complete-registration`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${idToken}`
+        },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        lastError = new Error(data.error || "Failed to complete registration.");
+        continue;
+      }
+      return data;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError || new Error("Failed to complete registration.");
+}

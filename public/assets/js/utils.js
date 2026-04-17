@@ -27,6 +27,14 @@ export function randomCode(prefix = "PH") {
 }
 
 export function toast(message) {
+  const key = String(message || "");
+  const now = Date.now();
+  const lastMsg = window.__lastToastMessage || "";
+  const lastAt = window.__lastToastAt || 0;
+  if (key && lastMsg === key && now - lastAt < 1200) return;
+  window.__lastToastMessage = key;
+  window.__lastToastAt = now;
+
   let root = document.getElementById("toastRoot");
   if (!root) {
     root = document.createElement("div");

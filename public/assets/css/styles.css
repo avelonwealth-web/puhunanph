@@ -24,6 +24,7 @@ body {
   min-height: 100vh;
   overflow-x: hidden;
   position: relative;
+  animation: bgPan 18s ease-in-out infinite alternate;
 }
 
 body::before,
@@ -80,7 +81,7 @@ body::after {
 
 .card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 14px 34px rgba(16, 49, 27, 0.16);
+  box-shadow: 0 16px 38px rgba(16, 49, 27, 0.24);
 }
 
 h1, h2, h3, p {
@@ -182,11 +183,12 @@ select:focus {
   width: 100%;
   max-width: 430px;
   bottom: 0;
-  background: rgba(255, 255, 255, 0.92);
-  border-top: 1px solid #ddf1e4;
+  background: linear-gradient(180deg, rgba(248, 255, 252, 0.95), rgba(232, 255, 242, 0.92));
+  border-top: 1px solid rgba(20, 160, 86, 0.24);
+  box-shadow: 0 -8px 22px rgba(8, 56, 33, 0.14);
   display: flex;
   justify-content: space-around;
-  padding: 8px 6px 10px;
+  padding: 8px 6px calc(10px + env(safe-area-inset-bottom));
   z-index: 12;
 }
 
@@ -195,6 +197,51 @@ select:focus {
   color: var(--muted);
   font-size: 0.8rem;
   text-align: center;
+  transition: transform 0.18s ease, color 0.18s ease;
+}
+
+.nav-item {
+  display: grid;
+  justify-items: center;
+  gap: 3px;
+  min-width: 64px;
+  padding: 3px 0;
+}
+
+.nav-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 31px;
+  height: 31px;
+  border-radius: 10px;
+  background: linear-gradient(155deg, #ffffff 5%, #d7ffe8 55%, #bff7d8 100%);
+  border: 1px solid rgba(14, 116, 54, 0.22);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.92),
+    inset 0 -2px 4px rgba(10, 113, 56, 0.15),
+    0 5px 10px rgba(10, 46, 28, 0.18);
+  transform: perspective(100px) rotateX(11deg);
+  font-size: 15px;
+  transition: transform 0.22s ease, box-shadow 0.22s ease, filter 0.22s ease;
+}
+
+.nav-item span:last-child {
+  position: relative;
+  font-size: 0.72rem;
+  letter-spacing: 0.26px;
+}
+
+.nav-item span:last-child::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -3px;
+  width: 0;
+  height: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(36, 224, 117, 0), rgba(36, 224, 117, 0.95), rgba(36, 224, 117, 0));
+  transform: translateX(-50%);
+  transition: width 0.22s ease;
 }
 
 .bottom-nav a.active {
@@ -202,18 +249,48 @@ select:focus {
   font-weight: 700;
 }
 
+.bottom-nav a.active .nav-icon {
+  background: linear-gradient(155deg, #f0fff6 0%, #bff7d8 62%, #8cefb9 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    inset 0 -2px 5px rgba(10, 113, 56, 0.2),
+    0 0 0 1px rgba(36, 224, 117, 0.35),
+    0 8px 14px rgba(10, 89, 45, 0.28),
+    0 0 12px rgba(36, 224, 117, 0.4);
+  animation: navGlow 1.9s ease-in-out infinite;
+}
+
+.bottom-nav a.active .nav-item span:last-child::after {
+  width: 30px;
+  animation: navBeam 1.6s ease-in-out infinite;
+}
+
+.bottom-nav a:active {
+  transform: translateY(1px);
+}
+
+.bottom-nav a:hover .nav-icon {
+  transform: perspective(100px) rotateX(11deg) translateY(-1px);
+  filter: saturate(1.08);
+}
+
 .support-btn {
   position: fixed;
   right: max(12px, calc((100vw - 430px) / 2 + 12px));
-  bottom: 74px;
+  top: 50%;
+  transform: translateY(-50%);
   width: 52px;
   height: 52px;
   border-radius: 50%;
   border: none;
-  background: #2aabee;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, #2aabee, #4dd2ff);
   color: #fff;
   box-shadow: var(--shadow);
   cursor: pointer;
+  z-index: 14;
+  animation: tgFloat 2.6s ease-in-out infinite;
 }
 
 .badge {
@@ -333,6 +410,19 @@ select:focus {
   display: grid;
   gap: 8px;
   background: linear-gradient(160deg, rgba(255, 255, 255, 0.92), rgba(233, 255, 244, 0.82));
+  position: relative;
+  overflow: hidden;
+}
+
+.dashboard-card::before {
+  content: "";
+  position: absolute;
+  inset: -120% auto auto -35%;
+  width: 65%;
+  height: 320%;
+  transform: rotate(25deg);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.45), transparent);
+  animation: cardShine 4.5s linear infinite;
 }
 
 .dashboard-card-head {
@@ -363,5 +453,52 @@ select:focus {
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes tgFloat {
+  0%, 100% { transform: translateY(-50%) translateX(0); box-shadow: 0 8px 24px rgba(42,171,238,0.35); }
+  50% { transform: translateY(calc(-50% - 6px)) translateX(-1px); box-shadow: 0 12px 28px rgba(42,171,238,0.55); }
+}
+
+@keyframes cardShine {
+  0% { left: -70%; opacity: 0; }
+  10% { opacity: .7; }
+  45% { left: 120%; opacity: 0; }
+  100% { left: 120%; opacity: 0; }
+}
+
+@keyframes bgPan {
+  0% { background-position: center top; }
+  100% { background-position: center 8%; }
+}
+
+@keyframes navGlow {
+  0%, 100% {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.95),
+      inset 0 -2px 5px rgba(10, 113, 56, 0.2),
+      0 0 0 1px rgba(36, 224, 117, 0.28),
+      0 8px 14px rgba(10, 89, 45, 0.26),
+      0 0 10px rgba(36, 224, 117, 0.32);
+  }
+  50% {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.98),
+      inset 0 -2px 6px rgba(10, 113, 56, 0.24),
+      0 0 0 1px rgba(36, 224, 117, 0.42),
+      0 10px 16px rgba(10, 89, 45, 0.32),
+      0 0 16px rgba(36, 224, 117, 0.52);
+  }
+}
+
+@keyframes navBeam {
+  0%, 100% {
+    opacity: 0.55;
+    filter: drop-shadow(0 0 3px rgba(36, 224, 117, 0.35));
+  }
+  50% {
+    opacity: 1;
+    filter: drop-shadow(0 0 7px rgba(36, 224, 117, 0.72));
   }
 }

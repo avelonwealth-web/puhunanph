@@ -24,6 +24,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 import { auth, db } from "./firebase-config.js";
 import { nowDateTime } from "./utils.js";
+import { apiCompleteRegistrationProfile } from "./api.js";
 
 export { auth, db };
 const REF_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -191,26 +192,31 @@ export async function registerMobile({ mobile, password, referralCode }) {
   const cred = await createUserWithEmailAndPassword(auth, toEmailFromMobile(mobile), password);
   const join = nowDateTime();
   const myCode = await generateUniqueReferralCode(8);
-  await setDoc(doc(db, "users", cred.user.uid), {
-    uid: cred.user.uid,
-    mobile,
-    balance: 0,
-    walletBalance: 0,
-    depositBalance: 0,
-    withdrawBalance: 0,
-    referralCode: myCode,
-    referredBy: inviterUid,
-    level1: 0,
-    level2: 0,
-    level3: 0,
-    joinDate: join.date,
-    joinTime: join.time,
-    isAdmin: false,
-    isBanned: false
-  });
-  await saveReferralCodeMap({ code: myCode, uid: cred.user.uid, mobile, isAdmin: false });
-
-  await addLog(cred.user.uid, "register", `Registered with inviter code ${refCode}`);
+  try {
+    await setDoc(doc(db, "users", cred.user.uid), {
+      uid: cred.user.uid,
+      mobile,
+      balance: 0,
+      walletBalance: 0,
+      depositBalance: 0,
+      withdrawBalance: 0,
+      referralCode: myCode,
+      referredBy: inviterUid,
+      level1: 0,
+      level2: 0,
+      level3: 0,
+      joinDate: join.date,
+      joinTime: join.time,
+      isAdmin: false,
+      isBanned: false
+    });
+    await saveReferralCodeMap({ code: myCode, uid: cred.user.uid, mobile, isAdmin: false });
+    await addLog(cred.user.uid, "register", `Registered with inviter code ${refCode}`);
+  } catch (error) {
+    if (error?.code !== "permission-denied") throw error;
+    const idToken = await cred.user.getIdToken();
+    await apiCompleteRegistrationProfile(idToken, { mobile, referralCode: refCode });
+  }
   return cred;
 }
 
@@ -304,10 +310,11 @@ export async function investProduct({ uid, product }) {
 }
 
 async function distributeReferralCommission(uid, amount) {
-  const levels = [0.15, 0.05, 0.02];
+  const levels = [0.15, 0.05, 0.01];
   let currentId = uid;
   const baseUser = await getDoc(doc(db, "users", uid));
   const fromUserMobile = baseUser.exists() ? baseUser.data().mobile : "";
+  const at = nowDateTime();
   for (let i = 0; i < levels.length; i += 1) {
     const userSnap = await getDoc(doc(db, "users", currentId));
     if (!userSnap.exists()) break;
@@ -325,6 +332,8 @@ async function distributeReferralCommission(uid, amount) {
       level: i + 1,
       percent: levels[i],
       amount: commission,
+      date: at.date,
+      time: at.time,
       createdAt: serverTimestamp()
     });
     await addLog(parentId, "referral", `Level ${i + 1} commission earned`, { amount: commission });
