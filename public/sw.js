@@ -1,4 +1,4 @@
-const CACHE_NAME = "puhunanph-v7";
+const CACHE_NAME = "puhunanph-v8";
 const ASSETS = [
   "./",
   "./index.html",

@@ -257,7 +257,7 @@ export function streamCollection(path, constraints, callback, onError) {
   const q = query(collection(db, path), ...constraints);
   return onSnapshot(
     q,
-    (snap) => callback(snap.docs.map((d) => ({ id: d.id, ...d.data() })))),
+    (snap) => callback(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
     (error) => {
       console.error("[streamCollection]", path, error);
       if (typeof onError === "function") onError(error);
