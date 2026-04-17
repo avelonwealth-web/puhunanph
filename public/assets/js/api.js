@@ -1,7 +1,8 @@
 const isLocalhost = window.location.hostname === "127.0.0.1" || window.location.hostname === "localhost";
+/** Same-origin `/api` first (Netlify proxy / custom domain), then direct Render. */
 const API_BASES = isLocalhost
   ? ["http://localhost:10000/api", "https://puhunanph.onrender.com/api"]
-  : ["https://puhunanph.onrender.com/api"];
+  : [`${window.location.origin}/api`, "https://puhunanph.onrender.com/api"];
 const ADMIN_SECRET = localStorage.getItem("adminSecret") || "";
 
 async function fetchWithFallback(path, init) {
