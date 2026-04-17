@@ -1,5 +1,6 @@
 /login /login.html 200
 /log /login.html 302
+/r/:code /register.html?ref=:code 302
 /register /register.html 200
 /dashboard /dashboard.html 200
 /product /product.html 200

@@ -48,6 +48,13 @@ function setSupportButton() {
   );
 }
 
+/** Shorter invite path — friendlier for Messenger / SMS than long query strings. */
+function referralJoinUrl(code) {
+  const c = String(code || "").trim();
+  if (!c) return "";
+  return `${window.location.origin}/r/${encodeURIComponent(c)}`;
+}
+
 function injectBrandHeader(page) {
   if (page === "index") return;
   const main = document.querySelector("main");
@@ -419,7 +426,7 @@ function setupProfilePage() {
   if (!profile) return;
   requireAuth((u) => {
     streamUser(u.uid, (user) => {
-      const link = `${window.location.origin}/register.html?ref=${user?.referralCode || ""}`;
+      const link = referralJoinUrl(user?.referralCode) || `${window.location.origin}/register.html`;
       const wallet = Number(user?.walletBalance || 0);
       const legacy = Number(user?.balance || 0);
       const walletShown = wallet > 0 ? wallet : legacy;
@@ -535,7 +542,7 @@ function setupTeamPage() {
 
   requireAuth((u) => {
     streamUser(u.uid, (user) => {
-      const link = `${window.location.origin}/register.html?ref=${user?.referralCode || ""}`;
+      const link = referralJoinUrl(user?.referralCode) || `${window.location.origin}/register.html`;
       if (linkNode) linkNode.textContent = link;
       if (copyBtn) {
         copyBtn.onclick = async () => {
@@ -811,7 +818,7 @@ function setupAdminPage() {
 
   function setAdminReferralUI(code) {
     const finalCode = code || "-";
-    const link = code ? `${window.location.origin}/register.html?ref=${code}` : "-";
+    const link = code ? referralJoinUrl(code) : "-";
     if (codeNode) codeNode.textContent = finalCode;
     if (linkNode) linkNode.textContent = link;
     if (copyCodeBtn) copyCodeBtn.onclick = async () => {
