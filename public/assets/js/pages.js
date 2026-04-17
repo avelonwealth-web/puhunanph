@@ -302,24 +302,41 @@ function setupTeamPage() {
         const rate = lv === 1 ? "15%" : lv === 2 ? "5%" : "1%";
         const total = list.reduce((s, r) => s + (r.amount || 0), 0);
         const members = new Set(list.map((r) => r.fromUserId).filter(Boolean)).size;
+        const downlines = list.map((r) => {
+          const pct = Number(r.percent || levelRates[lv] || 0.01);
+          const totalDeposit = pct > 0 ? (Number(r.amount || 0) / pct) : Number(r.amount || 0);
+          const d = r.createdAt?.seconds
+            ? new Date(r.createdAt.seconds * 1000).toLocaleString("en-PH")
+            : `${r.date || "-"} ${r.time || ""}`.trim();
+          return `<p class="muted">${maskMobile(r.fromUserMobile || "09XXXXXXXXX")}/${d || "-"}/${peso(totalDeposit)}</p>`;
+        }).join("") || "<p class='muted'>No downlines yet.</p>";
         return `
-          <details class="card">
-            <summary><strong>Level ${lv}</strong> - ${rate}</summary>
+          <article class="card team-level-card" data-level-card="${lv}">
+            <button class="team-level-head" type="button" data-level-toggle="${lv}">
+              <span><strong>Level ${lv}</strong></span>
+              <span class="badge">${rate}</span>
+            </button>
             <p class="muted">Total members: ${members}</p>
             <p class="muted">Total commission: ${peso(total)}</p>
-            <div>${
-              list.map((r) => {
-                const pct = Number(r.percent || levelRates[lv] || 0.01);
-                const totalDeposit = pct > 0 ? (Number(r.amount || 0) / pct) : Number(r.amount || 0);
-                const d = r.createdAt?.seconds
-                  ? new Date(r.createdAt.seconds * 1000).toLocaleString("en-PH")
-                  : `${r.date || "-"} ${r.time || ""}`.trim();
-                return `<p class="muted">${maskMobile(r.fromUserMobile || "09XXXXXXXXX")} / ${d || "-"} / ${peso(totalDeposit)}</p>`;
-              }).join("") || "<p class='muted'>No downlines yet.</p>"
-            }</div>
-          </details>
+            <div class="team-downlines" id="teamDownlines${lv}" hidden>${downlines}</div>
+          </article>
         `;
       }).join("");
+
+      container.querySelectorAll("[data-level-toggle]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const level = btn.dataset.levelToggle;
+          const panel = document.getElementById(`teamDownlines${level}`);
+          if (!panel) return;
+          const isHidden = panel.hasAttribute("hidden");
+          container.querySelectorAll(".team-downlines").forEach((node) => node.setAttribute("hidden", ""));
+          container.querySelectorAll(".team-level-card").forEach((node) => node.classList.remove("open"));
+          if (isHidden) {
+            panel.removeAttribute("hidden");
+            btn.closest(".team-level-card")?.classList.add("open");
+          }
+        });
+      });
     });
   });
 }

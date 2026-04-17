@@ -432,6 +432,35 @@ select:focus {
   margin-bottom: 2px;
 }
 
+.team-level-card {
+  display: grid;
+  gap: 8px;
+}
+
+.team-level-head {
+  width: 100%;
+  border: none;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  text-align: left;
+  padding: 0;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.team-downlines {
+  border-top: 1px dashed rgba(15, 122, 55, 0.25);
+  padding-top: 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.team-level-card.open {
+  box-shadow: 0 18px 40px rgba(9, 68, 36, 0.25);
+}
+
 .dashboard-icon {
   width: 44px;
   height: 44px;
