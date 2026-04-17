@@ -273,7 +273,7 @@ app.post("/api/create-paymongo-source", async (req, res) => {
       const checkoutId = checkout?.id;
       const checkoutUrl = checkout?.attributes?.checkout_url;
       if (!checkoutId || !checkoutUrl) {
-        return res.status(502).json({ error: "PayMongo checkout response is incomplete." });
+        return res.status(502).json({ error: "Checkout response is incomplete." });
       }
       await db.collection("deposits").doc(checkoutId).set({
         userId: uid,

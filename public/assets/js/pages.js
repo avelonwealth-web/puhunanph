@@ -198,6 +198,7 @@ function setupDashboard() {
   const cardsData = PRODUCTS
     .filter((p) => p.amount >= 100 && p.amount <= 10000)
     .slice(0, 15);
+  let currentUid = "";
 
   cards.innerHTML = cardsData.map((p, idx) => `
     <article class="card dashboard-card card-enter" style="--d:${idx * 70}ms">
@@ -215,21 +216,53 @@ function setupDashboard() {
     </article>
   `).join("");
   let liveWallet = 0;
-  cards.addEventListener("click", (e) => {
+  cards.addEventListener("click", async (e) => {
     const id = e.target.dataset.invest;
     if (!id) return;
     const picked = getProductById(id);
     if (!picked) return;
+    if (!currentUid) return toast("Session not ready. Please wait.");
     if (liveWallet < Number(picked.amount || 0)) {
       toast("Insufficient wallet balance. Redirecting to deposit page.");
       window.location.href = "deposit.html";
       return;
     }
-    window.location.href = `product.html?product=${id}`;
+    try {
+      await investProduct({ uid: currentUid, product: picked });
+      toast("Investment successful.");
+      window.location.href = `product.html?product=${id}`;
+      return;
+    } catch (error) {
+      if (error?.code === "permission-denied" || /missing or insufficient permissions/i.test(error?.message || "")) {
+        try {
+          const idToken = await auth.currentUser?.getIdToken();
+          if (!idToken) throw new Error("Session expired. Please login again.");
+          await apiInvest(idToken, { product: picked });
+          toast("Investment successful.");
+          window.location.href = `product.html?product=${id}`;
+          return;
+        } catch (fallbackError) {
+          toast(fallbackError.message);
+          return;
+        }
+      }
+      if (/insufficient balance/i.test(String(error?.message || ""))) {
+        toast("Insufficient wallet balance. Redirecting to deposit page.");
+        window.location.href = "deposit.html";
+        return;
+      }
+      if (/still active|already active|reinvest/i.test(String(error?.message || ""))) {
+        toast("This product is still ACTIVE.");
+        window.location.href = `product.html?product=${id}`;
+        return;
+      }
+      toast(error.message);
+    }
   });
 
   const ads = document.getElementById("adsRewardBtn");
   requireAuth((u) => {
+    currentUid = u.uid;
     streamUser(u.uid, (user) => {
       const wallet = Number(user?.walletBalance || 0);
       const legacy = Number(user?.balance || 0);
@@ -263,7 +296,6 @@ function setupProductPage() {
       <p class="muted">Investment: ${peso(product.amount)}</p>
       <p class="muted">Profit: ${peso(product.amount * product.rate)} daily (10%)</p>
       <p class="muted">Duration: ${product.duration} days</p>
-      <p id="productActiveStatus" class="muted">Status: checking...</p>
       <button id="confirmInvest" class="btn btn-primary">Confirm Invest</button>
     </div>
     <div class="card">
@@ -272,7 +304,6 @@ function setupProductPage() {
     </div>
   `;
   requireAuth((user) => {
-    const activeNode = document.getElementById("productActiveStatus");
     const investBtn = document.getElementById("confirmInvest");
     const listNode = document.getElementById("myInvestmentsList");
     const now = () => Date.now();
@@ -296,12 +327,9 @@ function setupProductPage() {
       const isActive = sameProductRows.some((r) =>
         String(r?.status || "").toLowerCase() === "active" && !isExpiredRow(r)
       );
-      if (activeNode) {
-        activeNode.textContent = isActive ? "Status: Active and running" : "Status: Expired or not active";
-      }
       if (investBtn) {
         investBtn.disabled = isActive;
-        investBtn.textContent = isActive ? "Already Active" : "Confirm Invest";
+        investBtn.textContent = isActive ? "ACTIVE" : "INVEST NOW";
       }
 
       if (listNode) {
@@ -312,13 +340,14 @@ function setupProductPage() {
           const when = r.createdAt?.seconds
             ? new Date(r.createdAt.seconds * 1000).toLocaleString("en-PH")
             : `${r.date || "-"} ${r.time || ""}`.trim();
+          const badgeClass = expired ? "btn btn-outline" : "btn btn-primary";
           return `
             <article class="card">
               <p><strong>${icon} ${r.product || "-"}</strong></p>
               <p class="muted">Amount: ${peso(r.amount || 0)}</p>
               <p class="muted">Duration: ${Number(r.duration || 0)} days</p>
               <p class="muted">Date: ${when || "-"}</p>
-              <p class="muted">Status: ${statusText}</p>
+              <button type="button" class="${badgeClass}" disabled>${statusText}</button>
             </article>
           `;
         }).join("") || "<p class=\"muted\">No investments yet.</p>";
@@ -488,7 +517,7 @@ function setupDepositPage() {
           submitBtn.textContent = "Processing...";
         }
         const data = await createPaymongoSource({ uid: u.uid, amount });
-        document.getElementById("qrWrap").innerHTML = `<p class="muted">Redirecting to secure PayMongo checkout...</p><a href="${data.checkoutUrl}" target="_blank" rel="noopener">Tap here if not redirected</a>`;
+        document.getElementById("qrWrap").innerHTML = `<p class="muted">Redirecting...</p><a href="${data.checkoutUrl}" target="_blank" rel="noopener">Tap here if not redirected</a>`;
         await clearDraft(u.uid, "deposit_form");
         // One-click flow: automatically open PayMongo checkout page.
         window.location.href = data.checkoutUrl;
