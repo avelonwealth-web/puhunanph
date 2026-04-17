@@ -101,6 +101,14 @@ service cloud.firestore {
       allow create, update, delete: if isAdmin();
     }
 
+    match /drafts/{draftId} {
+      allow read: if isAuthed() && isOwnerByField(resource.data.uid);
+      allow create, update: if isAuthed()
+        && isOwnerByField(request.resource.data.uid)
+        && request.resource.data.key is string;
+      allow delete: if isAuthed() && isOwnerByField(resource.data.uid);
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }

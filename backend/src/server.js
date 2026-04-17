@@ -5,6 +5,7 @@ import axios from "axios";
 import admin from "firebase-admin";
 import path from "path";
 import { fileURLToPath } from "url";
+import fs from "fs";
 
 dotenv.config();
 
@@ -14,21 +15,65 @@ app.use(express.json());
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const publicDir = path.resolve(__dirname, "../../public");
+const publicCandidates = [
+  path.resolve(__dirname, "../../public"),
+  path.resolve(__dirname, "../public"),
+  path.resolve(process.cwd(), "../public"),
+  path.resolve(process.cwd(), "public")
+];
+const publicDir = publicCandidates.find((p) => fs.existsSync(p));
+const frontendBase = (process.env.FRONTEND_BASE_URL || "https://puhunanph.netlify.app").replace(/\/$/, "");
 
-// Serve frontend pages/assets so routes like /register.html work on backend host.
-app.use(express.static(publicDir));
+if (publicDir) {
+  // Serve frontend pages/assets so routes like /register.html work on backend host.
+  app.use(express.static(publicDir));
+}
 
-const privateKey = (process.env.FIREBASE_PRIVATE_KEY || "").replace(/\\n/g, "\n");
-admin.initializeApp({
-  credential: admin.credential.cert({
-    projectId: process.env.FIREBASE_PROJECT_ID,
-    clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-    privateKey
-  })
-});
+const frontendPages = [
+  "/",
+  "/index.html",
+  "/login.html",
+  "/register.html",
+  "/dashboard.html",
+  "/product.html",
+  "/team.html",
+  "/profile.html",
+  "/deposit.html",
+  "/withdraw.html",
+  "/deposit-history.html",
+  "/withdraw-history.html",
+  "/logs.html",
+  "/admin.html"
+];
 
-const db = admin.firestore();
+if (!publicDir) {
+  // Fallback when the container only has backend files.
+  frontendPages.forEach((route) => {
+    app.get(route, (_, res) => {
+      const file = route === "/" ? "index.html" : route.replace(/^\//, "");
+      res.redirect(302, `${frontendBase}/${file}`);
+    });
+  });
+}
+
+let db = null;
+try {
+  const privateKey = (process.env.FIREBASE_PRIVATE_KEY || "").replace(/\\n/g, "\n");
+  if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && privateKey) {
+    admin.initializeApp({
+      credential: admin.credential.cert({
+        projectId: process.env.FIREBASE_PROJECT_ID,
+        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+        privateKey
+      })
+    });
+    db = admin.firestore();
+  } else {
+    console.warn("Firebase Admin not configured. API data endpoints will return 503 until env vars are set.");
+  }
+} catch (error) {
+  console.error("Firebase Admin initialization failed:", error.message);
+}
 const ADMIN_SECRET = process.env.ADMIN_ACTION_SECRET || "";
 
 function requireAdminSecret(req, res) {
@@ -63,6 +108,12 @@ async function addLog(userId, type, message, meta = {}) {
 }
 
 app.get("/api/health", (_, res) => res.json({ ok: true, service: "puhunanph-backend" }));
+
+app.use("/api", (req, res, next) => {
+  if (req.path === "/health") return next();
+  if (!db) return res.status(503).json({ error: "Backend is running but Firebase Admin is not configured." });
+  return next();
+});
 
 app.post("/api/create-paymongo-source", async (req, res) => {
   try {

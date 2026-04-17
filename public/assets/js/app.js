@@ -229,6 +229,33 @@ export function streamCollection(path, constraints, callback) {
   return onSnapshot(q, (snap) => callback(snap.docs.map((d) => ({ id: d.id, ...d.data() }))));
 }
 
+function draftDocRef(uid, key) {
+  return doc(db, "drafts", `${uid}_${key}`);
+}
+
+export async function saveDraft(uid, key, data) {
+  if (!uid || !key) return;
+  await setDoc(draftDocRef(uid, key), {
+    uid,
+    key,
+    data,
+    updatedAt: serverTimestamp()
+  }, { merge: true });
+}
+
+export function streamDraft(uid, key, callback) {
+  if (!uid || !key) return () => {};
+  return onSnapshot(draftDocRef(uid, key), (snap) => {
+    if (!snap.exists()) return callback(null);
+    callback(snap.data()?.data || null);
+  });
+}
+
+export async function clearDraft(uid, key) {
+  if (!uid || !key) return;
+  await deleteDoc(draftDocRef(uid, key)).catch(() => null);
+}
+
 export async function addLog(userId, type, message, meta = {}) {
   const at = nowDateTime();
   await addDoc(collection(db, "logs"), {

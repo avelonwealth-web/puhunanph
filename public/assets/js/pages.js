@@ -13,7 +13,10 @@ import {
   adminSetBan,
   createManualProduct,
   upsertSystemSetting,
-  ensureUserReferralCode
+  ensureUserReferralCode,
+  saveDraft,
+  streamDraft,
+  clearDraft
 } from "./app.js";
 import { PRODUCTS, getProductById } from "./products.js";
 import { peso, maskMobile, getQuery, toast, notifySound } from "./utils.js";
@@ -127,17 +130,61 @@ function setupAuthForms() {
   });
 }
 
+function autosaveFormWithDraft({ uid, key, fields }) {
+  const unsub = streamDraft(uid, key, (data) => {
+    if (!data) return;
+    fields.forEach((name) => {
+      const el = document.getElementById(name);
+      if (!el) return;
+      if (document.activeElement === el) return;
+      el.value = data[name] ?? el.value;
+    });
+  });
+
+  let timer;
+  const scheduleSave = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      const payload = {};
+      fields.forEach((name) => {
+        const el = document.getElementById(name);
+        if (el) payload[name] = el.value;
+      });
+      saveDraft(uid, key, payload).catch(() => {});
+    }, 450);
+  };
+
+  fields.forEach((name) => {
+    const el = document.getElementById(name);
+    if (!el) return;
+    el.addEventListener("input", scheduleSave);
+    el.addEventListener("change", scheduleSave);
+  });
+
+  return unsub;
+}
+
 function setupDashboard() {
   const cards = document.getElementById("productCards");
   if (!cards) return;
-  cards.innerHTML = PRODUCTS.map((p) => `
-    <div class="card">
-      <div class="badge">${p.icon} ${p.name}</div>
-      <p class="muted">Amount: ${peso(p.amount)}</p>
-      <p class="muted">Profit: ${(p.rate * 100).toFixed(0)}% daily</p>
-      <p class="muted">Duration: ${p.duration} days</p>
+  const cardsData = PRODUCTS
+    .filter((p) => p.amount >= 100 && p.amount <= 10000)
+    .slice(0, 15);
+
+  cards.innerHTML = cardsData.map((p, idx) => `
+    <article class="card dashboard-card card-enter" style="--d:${idx * 70}ms">
+      <div class="dashboard-card-head">
+        <div class="dashboard-icon">${p.icon}</div>
+        <div>
+          <p class="muted">Product name</p>
+          <h3>${p.name}</h3>
+        </div>
+      </div>
+      <p><span class="muted">Investment amount:</span> <strong>${peso(p.amount)}</strong></p>
+      <p><span class="muted">Profit rate:</span> <strong>${(p.rate * 100).toFixed(0)}% daily</strong></p>
+      <p><span class="muted">Duration:</span> <strong>${p.duration} days</strong></p>
       <button class="btn btn-primary" data-invest="${p.id}">Invest Now</button>
-    </div>
+    </article>
   `).join("");
   cards.addEventListener("click", (e) => {
     const id = e.target.dataset.invest;
@@ -245,6 +292,7 @@ function setupDepositPage() {
   const form = document.getElementById("depositForm");
   if (!form) return;
   requireAuth((u) => {
+    autosaveFormWithDraft({ uid: u.uid, key: "deposit_form", fields: ["amount"] });
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       const amount = Number(document.getElementById("amount").value);
@@ -252,6 +300,7 @@ function setupDepositPage() {
       try {
         const data = await createPaymongoSource({ uid: u.uid, amount });
         document.getElementById("qrWrap").innerHTML = `<p class="muted">Pay via QR URL:</p><a href="${data.checkoutUrl}" target="_blank">${data.checkoutUrl}</a>`;
+        await clearDraft(u.uid, "deposit_form");
       } catch (error) {
         toast(error.message);
       }
@@ -263,6 +312,11 @@ function setupWithdrawPage() {
   const form = document.getElementById("withdrawForm");
   if (!form) return;
   requireAuth((u) => {
+    autosaveFormWithDraft({
+      uid: u.uid,
+      key: "withdraw_form",
+      fields: ["mobileNumber", "accountNumber", "amount"]
+    });
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       const mobileNumber = document.getElementById("mobileNumber").value.trim();
@@ -274,6 +328,7 @@ function setupWithdrawPage() {
       try {
         await requestWithdrawal({ uid: u.uid, mobileNumber, accountNumber, amount });
         await addLog(u.uid, "withdraw", "Withdraw request submitted", { amount });
+        await clearDraft(u.uid, "withdraw_form");
         toast("Withdraw request submitted.");
       } catch (error) {
         toast(error.message);
@@ -305,6 +360,8 @@ function setupLogsPage() {
 function setupAdminPage() {
   const usersNode = document.getElementById("adminUsers");
   if (!usersNode) return;
+  let adminUid = null;
+  let autosaveReady = false;
   const codeNode = document.getElementById("adminReferralCode");
   const linkNode = document.getElementById("adminReferralLink");
   const copyCodeBtn = document.getElementById("copyAdminCode");
@@ -395,7 +452,21 @@ function setupAdminPage() {
   }
 
   requireAuth((u) => {
+    adminUid = u.uid;
     streamUser(u.uid, (me) => {
+      if (!autosaveReady) {
+        autosaveFormWithDraft({
+          uid: u.uid,
+          key: "admin_product_form",
+          fields: ["newProductName", "newProductIcon", "newProductAmount", "newProductRate", "newProductDuration"]
+        });
+        autosaveFormWithDraft({
+          uid: u.uid,
+          key: "admin_settings_form",
+          fields: ["settingKey", "settingValue"]
+        });
+        autosaveReady = true;
+      }
       (async () => {
         const fixedCode = await ensureUserReferralCode(u.uid, 8);
         setAdminReferralUI(fixedCode || me?.referralCode || "");
@@ -482,6 +553,7 @@ function setupAdminPage() {
       notifySound();
       toast("Product added.");
       addProductForm.reset();
+      if (adminUid) await clearDraft(adminUid, "admin_product_form");
     } catch (error) {
       toast(error.message);
     }
@@ -497,6 +569,7 @@ function setupAdminPage() {
       await upsertSystemSetting(key, value);
       notifySound();
       toast("Setting saved.");
+      if (adminUid) await clearDraft(adminUid, "admin_settings_form");
     } catch (error) {
       toast(error.message);
     }
