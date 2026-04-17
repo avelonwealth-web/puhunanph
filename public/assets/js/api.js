@@ -20,23 +20,13 @@ async function fetchWithFallback(path, init) {
 }
 
 async function fetchPrimaryOnly(path, init) {
-  let networkError = null;
-  for (const base of API_BASES) {
-    try {
-      const res = await fetch(`${base}${path}`, init);
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || `HTTP ${res.status}`);
-      }
-      return res;
-    } catch (error) {
-      // Only try next base on network-level failures.
-      const isNetworkError = !error?.message || /failed to fetch|networkerror|load failed|fetch/i.test(String(error.message));
-      if (!isNetworkError) throw error;
-      networkError = error;
-    }
+  const base = API_BASES[0];
+  const res = await fetch(`${base}${path}`, init);
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `HTTP ${res.status}`);
   }
-  throw networkError || new Error("Request failed");
+  return res;
 }
 
 export async function createPaymongoSource(payload) {
@@ -81,6 +71,42 @@ export async function apiDeleteUser(uid) {
     }
   });
   if (!res.ok) throw new Error("Failed to delete user.");
+  return res.json();
+}
+
+export async function apiAdminDeleteWithdraw(id) {
+  const res = await fetchWithFallback(`/admin/delete-withdraw/${id}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-admin-secret": ADMIN_SECRET }
+  });
+  if (!res.ok) throw new Error("Failed to delete withdraw request.");
+  return res.json();
+}
+
+export async function apiAdminDeleteInvestment(id) {
+  const res = await fetchWithFallback(`/admin/delete-investment/${id}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-admin-secret": ADMIN_SECRET }
+  });
+  if (!res.ok) throw new Error("Failed to delete investment.");
+  return res.json();
+}
+
+export async function apiAdminDeleteLog(id) {
+  const res = await fetchWithFallback(`/admin/delete-log/${id}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-admin-secret": ADMIN_SECRET }
+  });
+  if (!res.ok) throw new Error("Failed to delete log.");
+  return res.json();
+}
+
+export async function apiAdminDeleteDailyReward(id) {
+  const res = await fetchWithFallback(`/admin/delete-daily-reward/${id}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-admin-secret": ADMIN_SECRET }
+  });
+  if (!res.ok) throw new Error("Failed to delete daily reward.");
   return res.json();
 }
 

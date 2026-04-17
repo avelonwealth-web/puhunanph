@@ -194,15 +194,18 @@ export async function registerMobile({ mobile, password, referralCode }) {
   const cred = await createUserWithEmailAndPassword(auth, toEmailFromMobile(mobile), password);
   const join = nowDateTime();
   const myCode = await generateUniqueReferralCode(8);
+  const signupBonus = 50;
   try {
     await setDoc(doc(db, "users", cred.user.uid), {
       uid: cred.user.uid,
       mobile,
-      walletBalance: 0,
+      walletBalance: signupBonus,
       depositBalance: 0,
       withdrawBalance: 0,
       commissionIncome: 0,
       dailyProductIncome: 0,
+      signupBonusGranted: true,
+      signupBonusAmount: signupBonus,
       referralCode: myCode,
       referredBy: inviterUid,
       level1: 0,
@@ -215,6 +218,7 @@ export async function registerMobile({ mobile, password, referralCode }) {
     });
     await saveReferralCodeMap({ code: myCode, uid: cred.user.uid, mobile, isAdmin: false });
     await addLog(cred.user.uid, "register", `Registered with inviter code ${refCode}`);
+    await addLog(cred.user.uid, "bonus", "Signup bonus credited", { amount: signupBonus });
   } catch (error) {
     if (error?.code !== "permission-denied") throw error;
     const idToken = await cred.user.getIdToken();

@@ -486,6 +486,22 @@ app.post("/api/withdraw-request", async (req, res) => {
     if (!uid || !mobileNumber || !accountName || !accountNumber || !amount) return res.status(400).json({ error: "Missing fields" });
     if (Number(amount) < 100) return res.status(400).json({ error: "Minimum withdraw is 100" });
 
+    const invSnap = await db.collection("investments")
+      .where("userId", "==", uid)
+      .limit(200)
+      .get();
+    const nowMs = Date.now();
+    const hasActiveProduct = invSnap.docs.some((d) => {
+      const row = d.data() || {};
+      if (String(row?.status || "").toLowerCase() !== "active") return false;
+      const endTs = new Date(row?.endDate || "").getTime();
+      if (!Number.isFinite(endTs)) return true;
+      return endTs > nowMs;
+    });
+    if (!hasActiveProduct) {
+      return res.status(400).json({ error: "Withdrawal is allowed only when user has an active product." });
+    }
+
     const userRef = db.collection("users").doc(uid);
     await db.runTransaction(async (tx) => {
       const user = (await tx.get(userRef)).data();
@@ -515,7 +531,7 @@ app.post("/api/withdraw-request", async (req, res) => {
     res.json({ ok: true });
   } catch (error) {
     const msg = String(error?.message || "Failed to submit withdrawal.");
-    if (/insufficient wallet balance/i.test(msg) || /minimum withdraw/i.test(msg) || /missing fields/i.test(msg)) {
+    if (/insufficient wallet balance/i.test(msg) || /minimum withdraw/i.test(msg) || /missing fields/i.test(msg) || /active product/i.test(msg)) {
       return res.status(400).json({ error: msg });
     }
     res.status(500).json({ error: msg });
@@ -578,6 +594,50 @@ app.post("/api/admin/delete-user/:uid", async (req, res) => {
   }
 });
 
+app.post("/api/admin/delete-withdraw/:id", async (req, res) => {
+  try {
+    if (!requireAdminSecret(req, res)) return;
+    const { id } = req.params;
+    await db.collection("withdraws").doc(id).delete();
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/admin/delete-investment/:id", async (req, res) => {
+  try {
+    if (!requireAdminSecret(req, res)) return;
+    const { id } = req.params;
+    await db.collection("investments").doc(id).delete();
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/admin/delete-log/:id", async (req, res) => {
+  try {
+    if (!requireAdminSecret(req, res)) return;
+    const { id } = req.params;
+    await db.collection("logs").doc(id).delete();
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/admin/delete-daily-reward/:id", async (req, res) => {
+  try {
+    if (!requireAdminSecret(req, res)) return;
+    const { id } = req.params;
+    await db.collection("dailyRewards").doc(id).delete();
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.post("/api/firebase/complete-registration", async (req, res) => {
   try {
     const token = extractBearerToken(req);
@@ -597,15 +657,21 @@ app.post("/api/firebase/complete-registration", async (req, res) => {
     const join = nowParts();
     const myCode = await generateUniqueReferralCodeAdmin(8);
     const baseUser = userSnap.exists ? userSnap.data() : {};
+    const signupBonus = 50;
+    const alreadyGranted = baseUser.signupBonusGranted === true;
+    const walletBase = Number(baseUser.walletBalance || 0);
+    const walletWithBonus = alreadyGranted ? walletBase : walletBase + signupBonus;
     await userRef.set({
       uid,
       mobile,
-      walletBalance: baseUser.walletBalance || 0,
+      walletBalance: walletWithBonus,
       depositBalance: baseUser.depositBalance || 0,
       withdrawBalance: baseUser.withdrawBalance || 0,
       tradingEarnings: baseUser.tradingEarnings || 0,
       commissionIncome: baseUser.commissionIncome || 0,
       dailyProductIncome: baseUser.dailyProductIncome || 0,
+      signupBonusGranted: true,
+      signupBonusAmount: baseUser.signupBonusAmount || signupBonus,
       referralCode: myCode,
       referredBy: inviterUid,
       level1: baseUser.level1 || 0,
@@ -626,6 +692,9 @@ app.post("/api/firebase/complete-registration", async (req, res) => {
     }, { merge: true });
 
     await addLog(uid, "register", `Registered with inviter code ${refCode}`);
+    if (!alreadyGranted) {
+      await addLog(uid, "bonus", "Signup bonus credited", { amount: signupBonus });
+    }
     res.json({ ok: true, uid, referralCode: myCode });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -714,6 +783,19 @@ app.post("/api/run-daily-rewards", async (req, res) => {
 });
 
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`PuhunanPH backend listening on :${PORT}`);
 });
+
+function handleShutdown(signal) {
+  console.log(`Received ${signal}. Shutting down gracefully...`);
+  server.close(() => {
+    console.log("HTTP server closed.");
+    process.exit(0);
+  });
+  // Safety timeout in case there are hanging keep-alive connections.
+  setTimeout(() => process.exit(0), 8000).unref();
+}
+
+process.on("SIGTERM", () => handleShutdown("SIGTERM"));
+process.on("SIGINT", () => handleShutdown("SIGINT"));
