@@ -249,24 +249,12 @@ export async function logout() {
   window.location.href = "login.html";
 }
 
-function formatFirestoreListenerError(error) {
-  const code = error?.code || "";
-  if (code === "failed-precondition") {
-    return "Live updates are still catching up. Wait a moment or refresh the page.";
-  }
-  if (code === "permission-denied") {
-    return "Could not load this data. Try signing in again.";
-  }
-  return "Something went wrong while loading data. Check your connection and try again.";
-}
-
 export function streamUser(uid, callback) {
   return onSnapshot(
     doc(db, "users", uid),
     (snap) => callback(snap.data()),
     (error) => {
       console.error("[streamUser]", uid, error);
-      toast(formatFirestoreListenerError(error));
     }
   );
 }
@@ -279,7 +267,6 @@ export function streamCollection(path, constraints, callback, onError) {
     (error) => {
       console.error("[streamCollection]", path, error);
       if (typeof onError === "function") onError(error);
-      else toast(formatFirestoreListenerError(error));
     }
   );
 }
