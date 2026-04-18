@@ -6,3 +6,9 @@
   to = "https://puhunanph.onrender.com/api/:splat"
   status = 200
   force = true
+
+[[redirects]]
+  from = "/webhook/*"
+  to = "https://puhunanph.onrender.com/webhook/:splat"
+  status = 200
+  force = true

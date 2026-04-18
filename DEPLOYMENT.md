@@ -22,7 +22,8 @@
 - Confirm `GET /api/health` returns `{ ok: true }`.
 
 ## 4) PayMongo
-- Create webhook endpoint: `https://<render-domain>/api/paymongo-webhook`.
+- Legacy webhook: `https://<render-domain>/api/paymongo-webhook` (checkout/source flow).
+- New JSON webhook: `https://<render-domain>/webhook/paymongo` (payment `paid` + `metadata.uid` / `metadata.depositAmount`). Netlify proxies `/webhook/*` to Render when using the Netlify domain.
 - Save webhook secret to `PAYMONGO_WEBHOOK_SECRET`.
 - Save secret key to `PAYMONGO_SECRET_KEY`.
 - Test deposit flow end-to-end in sandbox/live as needed.

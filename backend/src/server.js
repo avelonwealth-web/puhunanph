@@ -268,7 +268,141 @@ async function distributeReferralCommissionServer(uid, amount, sourceType = "inv
   }
 }
 
+/**
+ * Walk PayMongo webhook JSON for a resource with type "payment" and attributes.status "paid".
+ */
+function extractPaymongoPaidPayment(body) {
+  if (!body || typeof body !== "object") return null;
+  const seen = new Set();
+  const stack = [body];
+  while (stack.length) {
+    const o = stack.pop();
+    if (!o || typeof o !== "object" || seen.has(o)) continue;
+    seen.add(o);
+    const type = String(o.type || "");
+    const attrs = o.attributes && typeof o.attributes === "object" ? o.attributes : null;
+    if (type === "payment" && attrs && String(attrs.status || "").toLowerCase() === "paid") {
+      const amountCent = Number(attrs.amount);
+      const netCentRaw = attrs.net_amount ?? attrs.netAmount ?? attrs.amount;
+      const netCent = Number(netCentRaw);
+      return {
+        paymongoId: String(o.id || "").trim(),
+        metadata: attrs.metadata && typeof attrs.metadata === "object" ? attrs.metadata : {},
+        amountCentavos: Number.isFinite(amountCent) ? amountCent : 0,
+        netAmountCentavos: Number.isFinite(netCent) ? netCent : (Number.isFinite(amountCent) ? amountCent : 0)
+      };
+    }
+    for (const k of ["data", "attributes", "event", "resource"]) {
+      const v = o[k];
+      if (!v) continue;
+      if (Array.isArray(v)) {
+        for (const x of v) stack.push(x);
+      } else if (typeof v === "object") {
+        stack.push(v);
+      }
+    }
+    const inner = attrs?.data;
+    if (inner) {
+      if (Array.isArray(inner)) for (const x of inner) stack.push(x);
+      else stack.push(inner);
+    }
+  }
+  return null;
+}
+
 app.get("/api/health", (_, res) => res.json({ ok: true, service: "puhunanph-backend" }));
+
+/**
+ * PayMongo webhook — always HTTP 200 + { received: true } so PayMongo does not retry storm.
+ * Handles payment.paid-style payloads with metadata.uid and metadata.depositAmount (PHP).
+ */
+app.post("/webhook/paymongo", async (req, res) => {
+  const ok = () => res.status(200).json({ received: true });
+  try {
+    if (!db) {
+      console.warn("[webhook/paymongo] Firestore not configured; skipping.");
+      return ok();
+    }
+
+    const paid = extractPaymongoPaidPayment(req.body);
+    if (!paid) {
+      return ok();
+    }
+
+    const userId = String(paid.metadata?.uid || "").trim();
+    const depositAmount = Number(paid.metadata?.depositAmount);
+    const amountPhp = Number.isFinite(depositAmount) && depositAmount > 0
+      ? depositAmount
+      : (paid.amountCentavos > 0 ? paid.amountCentavos / 100 : 0);
+    const netPhp = paid.netAmountCentavos > 0 && paid.netAmountCentavos !== paid.amountCentavos
+      ? paid.netAmountCentavos / 100
+      : amountPhp;
+
+    if (!userId || !Number.isFinite(amountPhp) || amountPhp <= 0) {
+      console.warn("[webhook/paymongo] Missing metadata.uid or valid amount.", {
+        paymongoId: paid.paymongoId,
+        userId,
+        amountPhp
+      });
+      return ok();
+    }
+
+    if (!paid.paymongoId) {
+      console.warn("[webhook/paymongo] Missing payment id; cannot record idempotently.");
+      return ok();
+    }
+
+    const paymongoId = paid.paymongoId;
+    const depRef = db.collection("deposits").doc(paymongoId);
+    const userRef = db.collection("users").doc(userId);
+
+    let credited = false;
+    await db.runTransaction(async (tx) => {
+      const depSnap = await tx.get(depRef);
+      if (depSnap.exists && String(depSnap.data()?.status || "").toLowerCase() === "paid") {
+        return;
+      }
+      const userSnap = await tx.get(userRef);
+      if (!userSnap.exists) {
+        throw new Error(`User not found: ${userId}`);
+      }
+      const user = userSnap.data() || {};
+      tx.set(depRef, {
+        userId,
+        amount: amountPhp,
+        netAmount: Number.isFinite(netPhp) && netPhp > 0 ? netPhp : amountPhp,
+        paymongoId,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        status: "paid"
+      });
+      tx.update(userRef, {
+        walletBalance: (Number(user.walletBalance) || 0) + amountPhp,
+        depositBalance: (Number(user.depositBalance) || 0) + amountPhp
+      });
+      credited = true;
+    });
+
+    if (credited) {
+      await db.collection("logs").add({
+        userId,
+        action: "deposit",
+        amount: amountPhp,
+        reference: paymongoId,
+        timestamp: admin.firestore.FieldValue.serverTimestamp()
+      });
+      try {
+        await distributeReferralCommissionServer(userId, amountPhp, "deposit", paymongoId);
+      } catch (refErr) {
+        console.error("[webhook/paymongo] referral commission failed", refErr);
+      }
+    }
+
+    return ok();
+  } catch (err) {
+    console.error("[webhook/paymongo]", err);
+    return ok();
+  }
+});
 
 app.use("/api", (req, res, next) => {
   if (req.path === "/health") return next();
