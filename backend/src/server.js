@@ -31,7 +31,7 @@ const publicCandidates = [
   path.resolve(process.cwd(), "public")
 ];
 const publicDir = publicCandidates.find((p) => fs.existsSync(p));
-const frontendBase = (process.env.FRONTEND_BASE_URL || "https://puhunanph.netlify.app").replace(/\/$/, "");
+const frontendBase = (process.env.FRONTEND_BASE_URL || "https://puhunan-ph.xyz").replace(/\/$/, "");
 
 if (publicDir) {
   // Serve frontend pages/assets so routes like /register.html work on backend host.
