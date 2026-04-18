@@ -33,6 +33,28 @@ export function getQuery(key) {
   return new URLSearchParams(window.location.search).get(key);
 }
 
+/**
+ * Referral / invite code from the current URL (query or short path).
+ * Supports `?ref=`, `?referral=`, etc., and paths like `/r/ABCD1234` when the host
+ * rewrites to register without adding a query string (browser bar still shows `/r/...`).
+ */
+export function getReferralCodeFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  for (const key of ["ref", "referral", "invite", "code"]) {
+    const raw = params.get(key);
+    const v = String(raw || "").trim();
+    if (v) return v;
+  }
+  const path = window.location.pathname || "";
+  const m = path.match(/^\/r\/([^/]+)\/?$/i);
+  if (!m) return "";
+  try {
+    return decodeURIComponent(m[1]).trim();
+  } catch {
+    return m[1].trim();
+  }
+}
+
 export function navigate(path) {
   window.location.href = path;
 }

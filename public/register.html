@@ -32,7 +32,7 @@
           <input id="confirmPassword" class="input" type="password" placeholder="Confirm Password" autocomplete="new-password" required />
           <button type="button" class="btn btn-outline" data-toggle-password="confirmPassword">Show</button>
         </div>
-        <input id="referralCode" class="input" placeholder="Referral / Invite Code" required />
+        <input id="referralCode" class="input" placeholder="Referral / Invite Code" autocomplete="off" required />
         <button class="btn btn-primary" type="submit">Create Account</button>
       </form>
       <p class="muted">Already have account? <a href="login.html">Login</a></p>
@@ -41,11 +41,27 @@
   <script type="module" src="assets/js/pages.js?v=20260218"></script>
   <script>
     (function () {
+      function referralFromLocation() {
+        var p = new URLSearchParams(location.search);
+        var keys = ["ref", "referral", "invite", "code"];
+        for (var i = 0; i < keys.length; i++) {
+          var v = p.get(keys[i]);
+          if (v && String(v).trim()) return String(v).trim();
+        }
+        var path = location.pathname || "";
+        var m = path.match(/^\/r\/([^/]+)\/?$/i);
+        if (!m) return "";
+        try {
+          return decodeURIComponent(m[1]).trim();
+        } catch (e) {
+          return m[1].trim();
+        }
+      }
       function applyRefFromQuery() {
-        var ref = new URLSearchParams(location.search).get("ref");
+        var ref = referralFromLocation();
         if (!ref) return;
         var inp = document.getElementById("referralCode");
-        if (inp) inp.value = ref.trim();
+        if (inp) inp.value = ref;
       }
       if (document.readyState === "loading") {
         document.addEventListener("DOMContentLoaded", applyRefFromQuery);

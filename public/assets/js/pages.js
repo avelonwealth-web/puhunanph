@@ -23,6 +23,7 @@ import {
   peso,
   maskMobile,
   getQuery,
+  getReferralCodeFromUrl,
   toast,
   notifySound,
   shareOrCopyReferral,
@@ -160,10 +161,10 @@ function setupAuthForms() {
   if (registerForm && registerForm.dataset.authBound !== "1") {
     registerForm.dataset.authBound = "1";
 
-    const refFromUrl = getQuery("ref");
+    const refFromUrl = getReferralCodeFromUrl();
     const referralInput = document.getElementById("referralCode");
     if (referralInput && refFromUrl) {
-      referralInput.value = String(refFromUrl).trim();
+      referralInput.value = refFromUrl;
     }
 
     registerForm.addEventListener("submit", async (e) => {
