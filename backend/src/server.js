@@ -34,6 +34,15 @@ const publicDir = publicCandidates.find((p) => fs.existsSync(p));
 const frontendBase = (process.env.FRONTEND_BASE_URL || "https://puhunan-ph.xyz").replace(/\/$/, "");
 
 if (publicDir) {
+  // Same as Netlify _redirects: short invite URLs (Express does not read _redirects).
+  app.get("/r/:code", (req, res) => {
+    const code = String(req.params.code || "").trim();
+    if (!code) {
+      res.redirect(302, "/register.html");
+      return;
+    }
+    res.redirect(302, `/register.html?ref=${encodeURIComponent(code)}`);
+  });
   // Serve frontend pages/assets so routes like /register.html work on backend host.
   app.use(express.static(publicDir));
 }
@@ -57,6 +66,14 @@ const frontendPages = [
 
 if (!publicDir) {
   // Fallback when the container only has backend files.
+  app.get("/r/:code", (req, res) => {
+    const code = String(req.params.code || "").trim();
+    if (!code) {
+      res.redirect(302, `${frontendBase}/register.html`);
+      return;
+    }
+    res.redirect(302, `${frontendBase}/register.html?ref=${encodeURIComponent(code)}`);
+  });
   frontendPages.forEach((route) => {
     app.get(route, (_, res) => {
       const file = route === "/" ? "index.html" : route.replace(/^\//, "");

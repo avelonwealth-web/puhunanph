@@ -205,6 +205,12 @@ function setupAuthForms() {
   if (registerForm && registerForm.dataset.authBound !== "1") {
     registerForm.dataset.authBound = "1";
 
+    const refFromUrl = getQuery("ref");
+    const referralInput = document.getElementById("referralCode");
+    if (referralInput && refFromUrl) {
+      referralInput.value = String(refFromUrl).trim();
+    }
+
     registerForm.addEventListener("submit", async (e) => {
       e.preventDefault();
       const mobile = document.getElementById("mobile").value.trim();

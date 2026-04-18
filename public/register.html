@@ -40,11 +40,19 @@
   </main>
   <script type="module" src="assets/js/pages.js?v=20260218"></script>
   <script>
-    const ref = new URLSearchParams(location.search).get("ref");
-    if (ref) document.addEventListener("DOMContentLoaded", () => {
-      const inp = document.getElementById("referralCode");
-      inp.value = ref;
-    });
+    (function () {
+      function applyRefFromQuery() {
+        var ref = new URLSearchParams(location.search).get("ref");
+        if (!ref) return;
+        var inp = document.getElementById("referralCode");
+        if (inp) inp.value = ref.trim();
+      }
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", applyRefFromQuery);
+      } else {
+        applyRefFromQuery();
+      }
+    })();
   </script>
 </body>
 </html>
