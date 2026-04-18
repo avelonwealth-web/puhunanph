@@ -19,7 +19,16 @@ import {
   limit
 } from "./app.js";
 import { PRODUCTS, getProductById } from "./products.js";
-import { peso, maskMobile, getQuery, toast, notifySound, shareOrCopyReferral, phDateKey } from "./utils.js";
+import {
+  peso,
+  maskMobile,
+  getQuery,
+  toast,
+  notifySound,
+  shareOrCopyReferral,
+  phDateKey,
+  sanitizeUserFacingError
+} from "./utils.js";
 import { investProduct, loginMobile, registerMobile, addLog, adminQuickLogin, db } from "./app.js";
 import { doc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 import {
@@ -176,9 +185,9 @@ function setupAuthForms() {
         window.location.href = isQuickAdmin ? "admin.html" : "dashboard.html";
       } catch (error) {
         if (error?.code === "auth/configuration-not-found") {
-          toast("Firebase Auth is not configured. Enable Email/Password sign-in in Firebase console.");
+          toast("Sign-in is not available on this app right now. Please try again later.");
         } else {
-          toast(error.message);
+          toast(sanitizeUserFacingError(error?.message));
         }
       } finally {
         if (submitBtn) {
@@ -215,9 +224,9 @@ function setupAuthForms() {
         window.location.href = "dashboard.html";
       } catch (error) {
         if (error?.code === "permission-denied" || /Missing or insufficient permissions/i.test(error?.message || "")) {
-          toast("Registration blocked by Firestore rules. Publish the latest firestore.rules first.");
+          toast("Registration could not be completed. Please try again or contact support.");
         } else {
-          toast(error.message);
+          toast(sanitizeUserFacingError(error?.message));
         }
       } finally {
         if (submitBtn) {
@@ -328,7 +337,7 @@ function setupDashboard() {
           window.location.href = `product.html?product=${id}`;
           return;
         } catch (fallbackError) {
-          toast(fallbackError.message);
+          toast(sanitizeUserFacingError(fallbackError?.message));
           return;
         }
       }
@@ -342,7 +351,7 @@ function setupDashboard() {
         window.location.href = `product.html?product=${id}`;
         return;
       }
-      toast(error.message);
+      toast(sanitizeUserFacingError(error?.message));
     }
   });
 
@@ -377,7 +386,7 @@ function setupDashboard() {
         notifySound();
         toast("You got PHP 10 ads reward.");
       } catch (error) {
-        toast(error.message);
+        toast(sanitizeUserFacingError(error?.message));
       }
     });
   });
@@ -464,7 +473,7 @@ function setupProductPage() {
             toast("Investment successful. Product is now active.");
             return;
           } catch (fallbackError) {
-            toast(fallbackError.message);
+            toast(sanitizeUserFacingError(fallbackError?.message));
             return;
           }
         }
@@ -473,7 +482,7 @@ function setupProductPage() {
           setTimeout(() => { window.location.href = "deposit.html"; }, 500);
           return;
         }
-        toast(error.message);
+        toast(sanitizeUserFacingError(error?.message));
       }
     });
   });
@@ -650,7 +659,7 @@ function setupDepositPage() {
         // One-click flow: automatically open PayMongo checkout page.
         window.location.href = data.checkoutUrl;
       } catch (error) {
-        toast(error.message);
+        toast(sanitizeUserFacingError(error?.message));
       } finally {
         if (submitBtn) {
           submitBtn.disabled = false;
@@ -705,7 +714,7 @@ function setupWithdrawPage() {
         toast(data?.duplicate ? "Withdraw request already received." : "Withdraw request submitted.");
         window.location.href = "profile.html";
       } catch (error) {
-        toast(error.message);
+        toast(sanitizeUserFacingError(error?.message));
       } finally {
         delete form.dataset.withdrawSubmitting;
         if (submitBtn) {
@@ -999,7 +1008,7 @@ function setupAdminPage() {
         return toast("User deleted.");
       }
     } catch (error) {
-      toast(error.message);
+      toast(sanitizeUserFacingError(error?.message));
     }
   });
 
@@ -1012,7 +1021,7 @@ function setupAdminPage() {
         notifySound();
         toast("Withdraw request deleted.");
       } catch (error) {
-        toast(error.message);
+        toast(sanitizeUserFacingError(error?.message));
       }
       return;
     }
@@ -1023,7 +1032,7 @@ function setupAdminPage() {
       notifySound();
       toast("Withdraw approved.");
     } catch (error) {
-      toast(error.message);
+      toast(sanitizeUserFacingError(error?.message));
     }
   });
 
@@ -1036,7 +1045,7 @@ function setupAdminPage() {
       notifySound();
       toast("Investment deleted.");
     } catch (error) {
-      toast(error.message);
+      toast(sanitizeUserFacingError(error?.message));
     }
   });
 
@@ -1049,7 +1058,7 @@ function setupAdminPage() {
       notifySound();
       toast("Log deleted.");
     } catch (error) {
-      toast(error.message);
+      toast(sanitizeUserFacingError(error?.message));
     }
   });
 
@@ -1062,7 +1071,7 @@ function setupAdminPage() {
       notifySound();
       toast("Daily reward deleted.");
     } catch (error) {
-      toast(error.message);
+      toast(sanitizeUserFacingError(error?.message));
     }
   });
 }

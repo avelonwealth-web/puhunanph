@@ -200,7 +200,7 @@ export async function registerMobile({ mobile, password, referralCode }) {
       if (bypassCode && bypassCode === refCode) {
         inviterUid = null;
       } else {
-        throw new Error("Permission denied on referral lookup. Publish latest firestore.rules.");
+        throw new Error("Could not verify invite code. Try again or contact support.");
       }
     } else {
       throw error;
@@ -251,12 +251,13 @@ export async function logout() {
 
 function formatFirestoreListenerError(error) {
   const code = error?.code || "";
-  const msg = String(error?.message || "");
-  if (code === "failed-precondition" || (/index/i.test(msg) && /create it/i.test(msg))) {
-    return "Firestore composite index is missing or still building. From the project root run: firebase deploy --only firestore:indexes — then in Firebase Console → Firestore → Indexes wait until Enabled.";
+  if (code === "failed-precondition") {
+    return "Live updates are still catching up. Wait a moment or refresh the page.";
   }
-  if (code === "permission-denied") return "Access denied. Sign in again or publish the latest firestore.rules.";
-  return msg || "Failed to sync data. Check your connection.";
+  if (code === "permission-denied") {
+    return "Could not load this data. Try signing in again.";
+  }
+  return "Something went wrong while loading data. Check your connection and try again.";
 }
 
 export function streamUser(uid, callback) {
@@ -382,7 +383,7 @@ export async function investProduct({ uid, product }) {
       await apiApplyInvestReferral(idToken, invRef.id);
     } catch (error) {
       console.warn("[invest] referral apply failed", error);
-      toast("Investment saved. If team commission is missing, refresh in a minute or contact support.");
+        toast("Investment saved. If team commission is missing, refresh in a minute or contact support.");
     }
   }
 }

@@ -310,88 +310,132 @@ function extractPaymongoPaidPayment(body) {
   return null;
 }
 
+/** PayMongo amounts are usually in centavos (minor units). */
+function paymongoMinorToPhp(minor) {
+  const n = Number(minor);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return n / 100;
+}
+
+/** Flat `event` or nested PayMongo envelope → { id, attributes } */
+function flattenPaymongoPayment(body) {
+  if (body?.type === "payment" && body?.attributes && String(body.attributes.status || "").toLowerCase() === "paid") {
+    return { id: body.id, attributes: body.attributes };
+  }
+  const nested = extractPaymongoPaidPayment(body);
+  if (!nested?.paymongoId) return null;
+  return {
+    id: nested.paymongoId,
+    attributes: {
+      status: "paid",
+      metadata: nested.metadata,
+      net_amount: nested.netAmountCentavos,
+      amount: nested.amountCentavos,
+      paid_at: undefined,
+      created_at: undefined
+    }
+  };
+}
+
 app.get("/api/health", (_, res) => res.json({ ok: true, service: "puhunanph-backend" }));
 
 /**
- * PayMongo webhook — always HTTP 200 + { received: true } so PayMongo does not retry storm.
- * Handles payment.paid-style payloads with metadata.uid and metadata.depositAmount (PHP).
+ * PayMongo webhook — always 200 `{ received: true }` (no retry storm).
+ * `type === "payment"` + `attributes.status === "paid"`, metadata.uid + metadata.depositAmount (PHP).
+ * Finds pending row by metadata.referenceNumber or dep_${uid}_${created_at}, else inserts.
  */
 app.post("/webhook/paymongo", async (req, res) => {
-  const ok = () => res.status(200).json({ received: true });
+  const ok = () => res.status(200).send({ received: true });
   try {
-    if (!db) {
-      console.warn("[webhook/paymongo] Firestore not configured; skipping.");
+    if (!db) return ok();
+
+    const event = flattenPaymongoPayment(req.body);
+    if (!event) return ok();
+
+    const attrs = event.attributes && typeof event.attributes === "object" ? event.attributes : {};
+    const md = attrs.metadata && typeof attrs.metadata === "object" ? attrs.metadata : {};
+    const uid = String(md.uid || "").trim();
+    const amountPhp = Number(md.depositAmount);
+    if (!uid || !Number.isFinite(amountPhp) || amountPhp <= 0) {
+      console.warn("[webhook/paymongo] missing metadata.uid or depositAmount");
       return ok();
     }
 
-    const paid = extractPaymongoPaidPayment(req.body);
-    if (!paid) {
+    const refFromMeta = String(md.referenceNumber || "").trim();
+    const createdKey = attrs.created_at ?? attrs.created ?? "";
+    const referenceNumber = refFromMeta || `dep_${uid}_${String(createdKey)}`;
+
+    const paymongoId = String(event.id || "").trim();
+    if (!paymongoId) {
+      console.warn("[webhook/paymongo] missing payment id");
       return ok();
     }
 
-    const userId = String(paid.metadata?.uid || "").trim();
-    const depositAmount = Number(paid.metadata?.depositAmount);
-    const amountPhp = Number.isFinite(depositAmount) && depositAmount > 0
-      ? depositAmount
-      : (paid.amountCentavos > 0 ? paid.amountCentavos / 100 : 0);
-    const netPhp = paid.netAmountCentavos > 0 && paid.netAmountCentavos !== paid.amountCentavos
-      ? paid.netAmountCentavos / 100
-      : amountPhp;
+    let netAmountPhp = amountPhp;
+    const netFromMinor = paymongoMinorToPhp(attrs.net_amount ?? attrs.netAmount ?? attrs.amount);
+    if (netFromMinor !== null && netFromMinor > 0) netAmountPhp = netFromMinor;
 
-    if (!userId || !Number.isFinite(amountPhp) || amountPhp <= 0) {
-      console.warn("[webhook/paymongo] Missing metadata.uid or valid amount.", {
-        paymongoId: paid.paymongoId,
-        userId,
-        amountPhp
-      });
-      return ok();
-    }
+    const paidAtSec = Number(attrs.paid_at ?? attrs.paidAt);
+    const creditedAtMs = Number.isFinite(paidAtSec) && paidAtSec > 0 ? paidAtSec * 1000 : Date.now();
+    const creditedAt = admin.firestore.Timestamp.fromMillis(creditedAtMs);
 
-    if (!paid.paymongoId) {
-      console.warn("[webhook/paymongo] Missing payment id; cannot record idempotently.");
-      return ok();
-    }
+    let walletCredited = false;
 
-    const paymongoId = paid.paymongoId;
-    const depRef = db.collection("deposits").doc(paymongoId);
-    const userRef = db.collection("users").doc(userId);
-
-    let credited = false;
     await db.runTransaction(async (tx) => {
-      const depSnap = await tx.get(depRef);
-      if (depSnap.exists && String(depSnap.data()?.status || "").toLowerCase() === "paid") {
-        return;
-      }
+      const qSnap = await tx.get(
+        db.collection("deposits").where("referenceNumber", "==", referenceNumber).limit(1)
+      );
+      const userRef = db.collection("users").doc(uid);
       const userSnap = await tx.get(userRef);
-      if (!userSnap.exists) {
-        throw new Error(`User not found: ${userId}`);
+      if (!userSnap.exists) throw new Error("user not found");
+
+      if (!qSnap.empty) {
+        const docRef = qSnap.docs[0].ref;
+        const existing = qSnap.docs[0].data() || {};
+        const st = String(existing.status || "").toLowerCase();
+        if (st === "confirmed" || st === "paid") return;
+        tx.update(docRef, {
+          status: "confirmed",
+          netAmount: netAmountPhp,
+          paymongoId,
+          creditedAt
+        });
+        const u = userSnap.data() || {};
+        tx.update(userRef, {
+          walletBalance: (Number(u.walletBalance) || 0) + amountPhp,
+          depositBalance: (Number(u.depositBalance) || 0) + amountPhp
+        });
+        walletCredited = true;
+      } else {
+        const newRef = db.collection("deposits").doc();
+        tx.set(newRef, {
+          userId: uid,
+          amount: amountPhp,
+          netAmount: netAmountPhp,
+          paymongoId,
+          referenceNumber,
+          createdAt: creditedAt,
+          status: "confirmed"
+        });
+        const u = userSnap.data() || {};
+        tx.update(userRef, {
+          walletBalance: (Number(u.walletBalance) || 0) + amountPhp,
+          depositBalance: (Number(u.depositBalance) || 0) + amountPhp
+        });
+        walletCredited = true;
       }
-      const user = userSnap.data() || {};
-      tx.set(depRef, {
-        userId,
-        amount: amountPhp,
-        netAmount: Number.isFinite(netPhp) && netPhp > 0 ? netPhp : amountPhp,
-        paymongoId,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        status: "paid"
-      });
-      tx.update(userRef, {
-        walletBalance: (Number(user.walletBalance) || 0) + amountPhp,
-        depositBalance: (Number(user.depositBalance) || 0) + amountPhp
-      });
-      credited = true;
     });
 
-    if (credited) {
+    if (walletCredited) {
       await db.collection("logs").add({
-        userId,
+        userId: uid,
         action: "deposit",
         amount: amountPhp,
         reference: paymongoId,
         timestamp: admin.firestore.FieldValue.serverTimestamp()
       });
       try {
-        await distributeReferralCommissionServer(userId, amountPhp, "deposit", paymongoId);
+        await distributeReferralCommissionServer(uid, amountPhp, "deposit", paymongoId);
       } catch (refErr) {
         console.error("[webhook/paymongo] referral commission failed", refErr);
       }
@@ -444,7 +488,7 @@ app.post("/api/create-paymongo-source", async (req, res) => {
             success_url: successRedirect,
             cancel_url: failedRedirect,
             reference_number: referenceNumber,
-            metadata: { uid, depositAmount: phpAmount }
+            metadata: { uid, depositAmount: String(phpAmount), referenceNumber }
           }
         }
       };

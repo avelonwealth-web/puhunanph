@@ -14,6 +14,16 @@ export function phDateKey(d = new Date()) {
   return d.toLocaleDateString("en-CA", { timeZone: "Asia/Manila" });
 }
 
+/** Avoid showing vendor / backend jargon in toasts. */
+export function sanitizeUserFacingError(message, fallback = "Something went wrong. Please try again.") {
+  const raw = String(message || "").trim();
+  if (!raw) return fallback;
+  if (/firebase|firestore|@firebase|gstatic|composite index|permission-denied|insufficient permissions/i.test(raw)) {
+    return fallback;
+  }
+  return raw.length > 200 ? fallback : raw;
+}
+
 export function maskMobile(mobile = "") {
   if (mobile.length < 8) return mobile;
   return `${mobile.slice(0, 4)}****${mobile.slice(-3)}`;
