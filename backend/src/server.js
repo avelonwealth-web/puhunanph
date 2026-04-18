@@ -168,51 +168,6 @@ function extractBearerToken(req) {
   return null;
 }
 
-let bitlyGroupGuidMemo = "";
-
-async function resolveBitlyGroupGuid(bitlyToken) {
-  const fromEnv = getEnvFirst("BITLY_GROUP_GUID", "BITLY_ORG_GUID").trim();
-  if (fromEnv) return fromEnv;
-  if (bitlyGroupGuidMemo) return bitlyGroupGuidMemo;
-  const r = await axios.get("https://api-ssl.bitly.com/v4/groups", {
-    headers: { Authorization: `Bearer ${bitlyToken}` }
-  });
-  const guid = r.data?.groups?.[0]?.guid || "";
-  if (!guid) throw new Error("Bitly returned no groups.");
-  bitlyGroupGuidMemo = guid;
-  return guid;
-}
-
-/** Returns https://bit.ly/... or null if not configured / Bitly error. */
-async function shortenWithBitly(longUrl) {
-  const bitlyToken = getEnvFirst("BITLY_API_TOKEN", "BITLY_GENERIC_ACCESS_TOKEN", "BITLY_ACCESS_TOKEN").trim();
-  if (!bitlyToken || !longUrl) return null;
-  try {
-    const groupGuid = await resolveBitlyGroupGuid(bitlyToken);
-    const res = await axios.post(
-      "https://api-ssl.bitly.com/v4/shorten",
-      {
-        long_url: longUrl,
-        domain: "bit.ly",
-        group_guid: groupGuid
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${bitlyToken}`,
-          "Content-Type": "application/json"
-        }
-      }
-    );
-    const link = res.data?.link && String(res.data.link).trim();
-    return link || null;
-  } catch (err) {
-    const detail = err?.response?.data?.message || err?.response?.data?.description
-      || err?.response?.data?.errors?.[0]?.message;
-    console.warn("Bitly shorten failed:", detail || err?.message || err);
-    return null;
-  }
-}
-
 function requireAdminSecret(req, res) {
   if (!ADMIN_SECRET) return true;
   const token = req.headers["x-admin-secret"];
@@ -993,44 +948,6 @@ app.post("/api/firebase/complete-registration", async (req, res) => {
     res.json({ ok: true, uid, referralCode: myCode });
   } catch (error) {
     res.status(500).json({ error: error.message });
-  }
-});
-
-/**
- * Authenticated: Bitly short URL for invite when BITLY_API_TOKEN is set; else long /r/{code} on FRONTEND_BASE_URL.
- * Caches on user doc when Bitly succeeds.
- */
-app.post("/api/referral-invite-link", async (req, res) => {
-  try {
-    const token = extractBearerToken(req);
-    if (!token) return res.status(401).json({ error: "Missing bearer token" });
-    const decoded = await admin.auth().verifyIdToken(token);
-    const uid = decoded.uid;
-    const userRef = db.collection("users").doc(uid);
-    const userSnap = await userRef.get();
-    if (!userSnap.exists) return res.status(404).json({ error: "User not found." });
-    const code = String(userSnap.data()?.referralCode || "").trim();
-    if (!code) return res.status(400).json({ error: "No referral code on profile yet." });
-    const longUrl = `${frontendBase}/r/${encodeURIComponent(code)}`;
-
-    const cachedLink = String(userSnap.data()?.referralBitlyLink || "").trim();
-    const cachedLong = String(userSnap.data()?.referralBitlyLongUrl || "").trim();
-    if (cachedLink && cachedLong === longUrl) {
-      return res.json({ url: cachedLink, source: "cache" });
-    }
-
-    const short = await shortenWithBitly(longUrl);
-    if (short) {
-      await userRef.set(
-        { referralBitlyLink: short, referralBitlyLongUrl: longUrl },
-        { merge: true }
-      );
-      return res.json({ url: short, source: "bitly" });
-    }
-
-    return res.json({ url: longUrl, source: "direct" });
-  } catch (error) {
-    res.status(500).json({ error: error.message || "referral-invite-link failed" });
   }
 });
 
