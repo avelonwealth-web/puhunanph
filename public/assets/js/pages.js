@@ -483,26 +483,29 @@ function setupProfilePage() {
           <h3>${user?.mobile || "-"}</h3>
           <div class="balance-grid grid grid-2">
             <article class="card balance-tile">
-              <p class="muted">Wallet Balance</p>
+              <p class="muted">Wallet (available now)</p>
               <p class="balance-tile-value">${peso(walletShown)}</p>
             </article>
             <article class="card balance-tile">
-              <p class="muted">Deposit Balance</p>
+              <p class="muted">Total deposits (lifetime)</p>
               <p class="balance-tile-value">${peso(user?.depositBalance || 0)}</p>
             </article>
             <article class="card balance-tile">
-              <p class="muted">Withdraw Balance</p>
+              <p class="muted">Total withdrawals (tracked)</p>
               <p class="balance-tile-value">${peso(user?.withdrawBalance || 0)}</p>
             </article>
             <article class="card balance-tile">
-              <p class="muted">Commission Income</p>
+              <p class="muted">Referral commissions (lifetime)</p>
               <p class="balance-tile-value">${peso(user?.commissionIncome || 0)}</p>
             </article>
             <article class="card balance-tile balance-tile-wide">
-              <p class="muted">Daily Product Income</p>
+              <p class="muted">Daily product profit (lifetime)</p>
               <p class="balance-tile-value">${peso(user?.dailyProductIncome || 0)}</p>
             </article>
           </div>
+          <p class="muted" style="font-size:0.88rem;margin:0 0 12px;line-height:1.45;max-width:520px;">
+            Hindi dapat pinag-iisa ang mga numerong ito. Ang <strong>Wallet</strong> lang ang spendable balance ngayon (pagkatapos ng invest, withdraw, atbp.). Ang iba ay mga buod na tala: halimbawa, kabuuang na-deposit, kabuuang nailabas sa withdraw pipeline, at kabuuang referral commission — ang mga kita ay pumapasok na sa Wallet kapag kinredito.
+          </p>
 
           <div class="grid grid-2 quick-links">
             <a class="card quick-link-card" href="deposit.html">Deposit</a>
