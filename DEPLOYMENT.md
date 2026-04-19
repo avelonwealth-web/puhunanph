@@ -32,6 +32,8 @@
 - Call `POST /api/run-daily-rewards` once per calendar day in **Asia/Manila** (de-dupe uses `phDateKey` / `YYYY-MM-DD` Manila).
 - On Render (UTC cron), `0 17 * * *` = **01:00 Manila** next calendar day; see `render.yaml` example.
 - Add header `x-cron-secret` with `CRON_SECRET` value.
+- The backend also runs the **same job on an internal timer** (default every **45 minutes**) so credits still apply if the Render Cron job is missing `BACKEND_BASE_URL`, has a wrong secret, or was never enabled. Set `INTERNAL_DAILY_REWARDS_INTERVAL_MS=0` to disable that backup.
+- `GET /api/health` includes `lastDailyRewardsAt` / `lastDailyRewardsSummary` so you can confirm the job ran.
 - After changing `firestore.indexes.json`, run `firebase deploy --only firestore:indexes` (dashboard needs `dailyRewards` userId + `createdAt` index for live list).
 - Verify daily reward logs appear in `logs` and `dailyRewards` collections.
 

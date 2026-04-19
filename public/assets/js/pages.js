@@ -374,6 +374,8 @@ function setupProductPage() {
   requireAuth((user) => {
     const investBtn = document.getElementById("confirmInvest");
     const listNode = document.getElementById("myInvestmentsList");
+    let investmentRows = [];
+    let dailyRewardRows = [];
     const now = () => Date.now();
     const createdMs = (row) => {
       if (row?.createdAt?.seconds) return Number(row.createdAt.seconds) * 1000;
@@ -387,10 +389,8 @@ function setupProductPage() {
       return endTs <= now();
     };
 
-    streamCollection("investments", [
-      where("userId", "==", user.uid)
-    ], (rows) => {
-      const sortedRows = [...rows].sort((a, b) => createdMs(b) - createdMs(a));
+    const paintInvestments = () => {
+      const sortedRows = [...investmentRows].sort((a, b) => createdMs(b) - createdMs(a));
       const sameProductRows = sortedRows.filter((r) => String(r?.product || "") === String(product.name || ""));
       const isActive = sameProductRows.some((r) =>
         String(r?.status || "").toLowerCase() === "active" && !isExpiredRow(r)
@@ -409,17 +409,36 @@ function setupProductPage() {
             ? new Date(r.createdAt.seconds * 1000).toLocaleString("en-PH")
             : `${r.date || "-"} ${r.time || ""}`.trim();
           const badgeClass = expired ? "btn btn-outline" : "btn btn-primary";
+          const payouts = dailyRewardRows.filter((d) => String(d.investmentId || "") === String(r.id));
+          const totalDaily = payouts.reduce((s, x) => s + Number(x.amount || 0), 0);
+          const payoutLines = payouts
+            .slice(0, 8)
+            .map((x) => `${x.date || "?"}: ${peso(x.amount || 0)}`)
+            .join(" · ");
+          const dailyHint = expired
+            ? ""
+            : `<p class="muted" style="font-size:0.85em;margin:6px 0 0;">Daily 10% (Manila day): <strong>${peso(totalDaily)}</strong> total${payoutLines ? `<br /><span style="opacity:0.9">${payoutLines}</span>` : "<br /><span style=\"opacity:0.85\">Credits after each server sync (~1:00 AM Manila + backup runs). Wallet updates in real time.</span>"}</p>`;
           return `
             <article class="card">
               <p><strong>${icon} ${r.product || "-"}</strong></p>
               <p class="muted">Amount: ${peso(r.amount || 0)}</p>
               <p class="muted">Duration: ${Number(r.duration || 0)} days</p>
               <p class="muted">Date: ${when || "-"}</p>
+              ${dailyHint}
               <button type="button" class="${badgeClass}" disabled>${statusText}</button>
             </article>
           `;
         }).join("") || "<p class=\"muted\">No investments yet.</p>";
       }
+    };
+
+    streamCollection("investments", [where("userId", "==", user.uid)], (rows) => {
+      investmentRows = rows;
+      paintInvestments();
+    });
+    streamUserTimeline("dailyRewards", user.uid, 200, (rows) => {
+      dailyRewardRows = rows;
+      paintInvestments();
     });
 
     investBtn.addEventListener("click", async () => {

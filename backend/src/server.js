@@ -309,7 +309,17 @@ function flattenPaymongoPayment(body) {
   };
 }
 
-app.get("/api/health", (_, res) => res.json({ ok: true, service: "puhunanph-backend" }));
+let lastDailyRewardsAt = null;
+let lastDailyRewardsSummary = null;
+
+app.get("/api/health", (_, res) =>
+  res.json({
+    ok: true,
+    service: "puhunanph-backend",
+    lastDailyRewardsAt,
+    lastDailyRewardsSummary
+  })
+);
 
 /**
  * PayMongo webhook — always 200 `{ received: true }` (no retry storm).
@@ -987,48 +997,79 @@ app.get("/api/admin/fallback-data", async (req, res) => {
   }
 });
 
+/**
+ * Credits ~10% of principal per active investment, once per Manila calendar day (phDateKey).
+ * Idempotent: uses doc id `${investmentId}_${dayKey}` inside a transaction + legacy query dedupe.
+ */
+async function runDailyRewardsJob() {
+  if (!db) {
+    console.warn("[daily-rewards] skipped: Firestore not configured");
+    return { ok: false, error: "no_db", processed: 0, dayKey: null };
+  }
+  const dayKey = phDateKey();
+  const { time } = nowParts();
+  const active = await db.collection("investments").where("status", "==", "active").get();
+  let processed = 0;
+  for (const invDoc of active.docs) {
+    const inv = invDoc.data();
+    if (inv.endDate && new Date(inv.endDate) < new Date()) {
+      await invDoc.ref.update({ status: "completed" });
+      continue;
+    }
+    const already = await db
+      .collection("dailyRewards")
+      .where("investmentId", "==", invDoc.id)
+      .where("date", "==", dayKey)
+      .limit(1)
+      .get();
+    if (!already.empty) continue;
+
+    const reward = Number(inv.amount) * 0.1;
+    const rewardRef = db.collection("dailyRewards").doc(`${invDoc.id}_${dayKey}`);
+
+    const didCredit = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(rewardRef);
+      if (snap.exists) return false;
+      const userRef = db.collection("users").doc(inv.userId);
+      const userSnap = await tx.get(userRef);
+      if (!userSnap.exists) return false;
+      const user = userSnap.data() || {};
+      tx.update(userRef, {
+        walletBalance: (Number(user.walletBalance) || 0) + reward,
+        dailyProductIncome: (Number(user.dailyProductIncome) || 0) + reward
+      });
+      tx.set(rewardRef, {
+        userId: inv.userId,
+        investmentId: invDoc.id,
+        amount: reward,
+        date: dayKey,
+        time,
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+      return true;
+    });
+
+    if (didCredit) {
+      await addLog(inv.userId, "dailyReward", "Daily 10% reward credited", { amount: reward });
+      processed += 1;
+    }
+  }
+  lastDailyRewardsAt = new Date().toISOString();
+  lastDailyRewardsSummary = { processed, dayKey };
+  console.log(`[daily-rewards] dayKey=${dayKey} processed=${processed}`);
+  return { ok: true, processed, dayKey };
+}
+
 app.post("/api/run-daily-rewards", async (req, res) => {
   try {
     if (process.env.CRON_SECRET && req.headers["x-cron-secret"] !== process.env.CRON_SECRET) {
       return res.status(401).json({ error: "Unauthorized cron request" });
     }
-    const dayKey = phDateKey();
-    const { time } = nowParts();
-    const active = await db.collection("investments").where("status", "==", "active").get();
-    let count = 0;
-    for (const invDoc of active.docs) {
-      const inv = invDoc.data();
-      if (new Date(inv.endDate) < new Date()) {
-        await invDoc.ref.update({ status: "completed" });
-        continue;
-      }
-      const already = await db.collection("dailyRewards")
-        .where("investmentId", "==", invDoc.id)
-        .where("date", "==", dayKey)
-        .limit(1)
-        .get();
-      if (!already.empty) continue;
-      const reward = Number(inv.amount) * 0.1;
-      await db.runTransaction(async (tx) => {
-        const userRef = db.collection("users").doc(inv.userId);
-        const user = (await tx.get(userRef)).data();
-        tx.update(userRef, {
-          walletBalance: (user.walletBalance || 0) + reward,
-          dailyProductIncome: (user.dailyProductIncome || 0) + reward
-        });
-        tx.set(db.collection("dailyRewards").doc(), {
-          userId: inv.userId,
-          investmentId: invDoc.id,
-          amount: reward,
-          date: dayKey,
-          time,
-          createdAt: admin.firestore.FieldValue.serverTimestamp()
-        });
-      });
-      await addLog(inv.userId, "dailyReward", "Daily 10% reward credited", { amount: reward });
-      count += 1;
+    const out = await runDailyRewardsJob();
+    if (!out.ok && out.error === "no_db") {
+      return res.status(503).json({ error: "Database not configured" });
     }
-    res.json({ ok: true, processed: count, dayKey });
+    res.json({ ok: true, processed: out.processed, dayKey: out.dayKey });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -1037,6 +1078,17 @@ app.post("/api/run-daily-rewards", async (req, res) => {
 const PORT = process.env.PORT || 3000;
 const server = app.listen(PORT, () => {
   console.log(`PuhunanPH backend listening on :${PORT}`);
+  const intervalMs = Number(process.env.INTERNAL_DAILY_REWARDS_INTERVAL_MS || 45 * 60 * 1000);
+  if (db && intervalMs > 0) {
+    const tick = () => {
+      runDailyRewardsJob().catch((err) => console.error("[daily-rewards] interval error", err));
+    };
+    setInterval(tick, intervalMs);
+    setTimeout(tick, 90 * 1000);
+    console.log(
+      `[daily-rewards] internal backup every ${Math.round(intervalMs / 60000)} min (disable: INTERNAL_DAILY_REWARDS_INTERVAL_MS=0)`
+    );
+  }
 });
 
 // Render (and most PaaS) send SIGTERM when replacing the instance: new deploy, scaling,
